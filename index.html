@@ -123,12 +123,11 @@ function ScoreBadge({ score, size }) {
 function Sign({ children }) {
     return React.createElement("div", { style: { background: "#1B5E3A", border: "3px solid #F2F0E9", borderRadius: 4, padding: "10px 18px", display: "inline-block" } }, children);
 }
-function StatBox({ label, value, emoji }) {
-    return (React.createElement("div", { style: { background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: 12 } },
-        React.createElement("div", { style: { fontSize: 11, color: "#9AA0A6", textTransform: "uppercase", letterSpacing: .5, marginBottom: 4 } },
-            emoji,
-            " ",
-            label),
+function StatBox({ label, value, emoji, color = "#9AA0A6" }) {
+    return (React.createElement("div", { style: { background: "#1F2428", border: "1px solid #2A2F34", borderTop: `3px solid ${color}`, borderRadius: 8, padding: 12 } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 4 } },
+            React.createElement("div", { style: { width: 20, height: 20, borderRadius: 5, background: `${color}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11 } }, emoji),
+            React.createElement("span", { style: { fontSize: 11, color: "#9AA0A6", textTransform: "uppercase", letterSpacing: .5 } }, label)),
         React.createElement("div", { style: { fontSize: 17, fontWeight: 800 } }, value)));
 }
 function Field({ label, children, hint }) {
@@ -339,7 +338,9 @@ function App() {
                 React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" } },
                     React.createElement("button", { onClick: () => setView("list"), style: { background: "none", border: "none", padding: 0, cursor: "pointer" } },
                         React.createElement(Sign, null,
-                            React.createElement("span", { style: { fontWeight: 800, fontSize: 22, letterSpacing: 1.5 } }, "DOCKTRUTH"))),
+                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                                React.createElement("span", { style: { fontSize: 20 } }, "\uD83D\uDE9A"),
+                                React.createElement("span", { style: { fontWeight: 800, fontSize: 22, letterSpacing: 1.5 } }, "DOCKTRUTH")))),
                     React.createElement("span", { style: { fontSize: 12, color: "#9AA0A6" } }, "What really happened at the dock — from the drivers who were there")),
                 view !== "list" && React.createElement("button", { onClick: () => setView("list"), style: { display: "flex", alignItems: "center", gap: 6, background: "#1F2428", border: "1px solid #3A4147", borderRadius: 6, padding: "8px 12px", color: "#F2F0E9", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 } }, "\u2302 Home")),
             view === "list" && React.createElement(React.Fragment, null,
@@ -353,12 +354,15 @@ function App() {
                         React.createElement("span", { style: { fontSize: 11, color: "#9AA0A6" } }, nextTier ? `${nextTier.count - myCount} more to: ${nextTier.reward}` : "All milestones unlocked")),
                     React.createElement("div", { style: { background: "#14171A", borderRadius: 4, height: 6, overflow: "hidden" } },
                         React.createElement("div", { style: { background: "#FBC02D", height: "100%", width: tierProgressPct + "%" } }))),
-                React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" } }, ["all", "shipper", "receiver"].map(t => (React.createElement("button", { key: t, onClick: () => setFilterType(t), style: {
+                React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" } }, ["all", "shipper", "receiver"].map(t => {
+                    const chipColor = t === "all" ? "#FBC02D" : TYPE_META[t].color;
+                    return React.createElement("button", { key: t, onClick: () => setFilterType(t), style: {
                         fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6,
-                        border: filterType === t ? "2px solid #FBC02D" : "1px solid #3A4147",
-                        background: filterType === t ? "rgba(251,192,45,.12)" : "transparent",
-                        color: filterType === t ? "#FBC02D" : "#9AA0A6", cursor: "pointer"
-                    } }, t === "all" ? "All" : TYPE_META[t].label + "s")))),
+                        border: filterType === t ? `2px solid ${chipColor}` : "1px solid #3A4147",
+                        background: filterType === t ? `${chipColor}22` : "transparent",
+                        color: filterType === t ? chipColor : "#9AA0A6", cursor: "pointer"
+                    } }, t === "all" ? "All" : TYPE_META[t].label + "s");
+                })),
                 React.createElement("div", { style: { display: "flex", gap: 10 } },
                     React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", background: "#1F2428", border: "1px solid #3A4147", borderRadius: 6, padding: "8px 12px" } },
                         "\uD83D\uDD0D",
@@ -392,7 +396,7 @@ function App() {
                 ))),
             React.createElement("div", { style: { display: "grid", gap: 12 } }, filtered.map(l => {
                 const meta = TYPE_META[l.type];
-                return (React.createElement("div", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); }, style: { background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: 14, display: "flex", gap: 14, alignItems: "center", cursor: "pointer" } },
+                return (React.createElement("div", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); }, style: { background: "#1F2428", border: "1px solid #2A2F34", borderLeft: `4px solid ${TYPE_META[l.type].color}`, borderRadius: 8, padding: 14, display: "flex", gap: 14, alignItems: "center", cursor: "pointer" } },
                     React.createElement(ScoreBadge, { score: l.stats.score }),
                     React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                         React.createElement("div", { style: { fontSize: 11, color: meta.color, fontWeight: 700, textTransform: "uppercase", marginBottom: 3 } },
@@ -427,13 +431,13 @@ function App() {
                     selected.lat && React.createElement("div", { style: { fontSize: 11, color: "#4FA36B", marginTop: 2 } }, "\u2713 Coordinates on file \u2014 reviews can be GPS-verified here"))),
             selected.notes && React.createElement("div", { style: { background: "#1F2428", borderRadius: 8, padding: 12, fontSize: 13, color: "#B8BCC0", marginBottom: 16 } }, selected.notes),
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 } },
-                React.createElement(StatBox, { label: "Dock ease", value: selectedStats.ease !== null ? `${selectedStats.ease.toFixed(1)}/5` : "—", emoji: "\uD83D\uDE9A" }),
-                React.createElement(StatBox, { label: "Avg check-in wait", value: selectedStats.checkInWait !== null ? formatHM(selectedStats.checkInWait) : "—", emoji: "\u23F1" }),
-                React.createElement(StatBox, { label: "Avg load/unload", value: selectedStats.dockTime !== null ? formatHM(selectedStats.dockTime) : "—", emoji: "\uD83D\uDE9A" }),
-                React.createElement(StatBox, { label: "Appointments kept", value: selectedStats.apptKeptPct !== null ? `${selectedStats.apptKeptPct}%` : "—", emoji: "\uD83D\uDCC5" }),
-                React.createElement(StatBox, { label: "Detained past free time", value: selectedStats.detentionFreqPct !== null ? `${selectedStats.detentionFreqPct}% of visits` : "—", emoji: "\u26A0\uFE0F" }),
-                React.createElement(StatBox, { label: "Avg lumper fee", value: selectedStats.lumper !== null ? `$${Math.round(selectedStats.lumper)}` : "—", emoji: "\uD83D\uDCB5" }),
-                React.createElement(StatBox, { label: "Overnight parking", value: selectedStats.parkingYes !== null ? `${selectedStats.parkingYes}% say yes` : "—", emoji: "\uD83D\uDCCD" })),
+                React.createElement(StatBox, { label: "Dock ease", value: selectedStats.ease !== null ? `${selectedStats.ease.toFixed(1)}/5` : "—", emoji: "\uD83D\uDE9A", color: "#4FA36B" }),
+                React.createElement(StatBox, { label: "Avg check-in wait", value: selectedStats.checkInWait !== null ? formatHM(selectedStats.checkInWait) : "—", emoji: "\u23F1", color: "#4FA3D1" }),
+                React.createElement(StatBox, { label: "Avg load/unload", value: selectedStats.dockTime !== null ? formatHM(selectedStats.dockTime) : "—", emoji: "\uD83D\uDE9A", color: "#4FA3D1" }),
+                React.createElement(StatBox, { label: "Appointments kept", value: selectedStats.apptKeptPct !== null ? `${selectedStats.apptKeptPct}%` : "—", emoji: "\uD83D\uDCC5", color: "#9B8AE6" }),
+                React.createElement(StatBox, { label: "Detained past free time", value: selectedStats.detentionFreqPct !== null ? `${selectedStats.detentionFreqPct}% of visits` : "—", emoji: "\u26A0\uFE0F", color: "#E0A526" }),
+                React.createElement(StatBox, { label: "Avg lumper fee", value: selectedStats.lumper !== null ? `$${Math.round(selectedStats.lumper)}` : "—", emoji: "\uD83D\uDCB5", color: "#D9B23E" }),
+                React.createElement(StatBox, { label: "Overnight parking", value: selectedStats.parkingYes !== null ? `${selectedStats.parkingYes}% say yes` : "—", emoji: "\uD83D\uDCCD", color: "#3FA9A0" })),
             (selectedStats.pickup.count > 0 || selectedStats.delivery.count > 0) && (React.createElement("div", { style: { background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: 12, marginBottom: 14 } },
                 React.createElement("div", { style: { fontSize: 11, color: "#9AA0A6", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 } }, "Pickup vs delivery"),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 12 } },
