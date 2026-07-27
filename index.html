@@ -80,6 +80,14 @@ const TIERS = [
     { count: 250, reward: "Lifetime founding-member discount" },
 ];
 function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+function formatHM(mins) {
+    const m = Math.round(mins);
+    const h = Math.floor(m / 60);
+    const rem = m % 60;
+    if (h === 0) return `${rem}m`;
+    if (rem === 0) return `${h}h`;
+    return `${h}h ${rem}m`;
+}
 function avg(nums) {
     const c = nums.filter((n) => typeof n === "number" && !isNaN(n));
     if (!c.length)
@@ -149,7 +157,7 @@ const submitBtnStyle = { width: "100%", background: "#FBC02D", color: "#14171A",
     padding: "13px", fontWeight: 700, fontSize: 14, cursor: "pointer", marginTop: 4 };
 const emptyReview = {
     direction: "delivery", equipment: "Dry Van", scheduling: "appointment", apptKept: "yes", apptMissReason: "",
-    checkInWait: "", dockTime: "", lumperUsed: "no", lumperFee: "", lumperPaidBy: "driver",
+    checkInWait: 0, checkInWaitTouched: false, dockTime: 0, dockTimeTouched: false, lumperUsed: "no", lumperFee: "", lumperPaidBy: "driver",
     detentionOwed: "no", overnightParking: "unknown", dockEase: 3,
     amenities: [], notes: "", initials: "", gps: null, gpsStatus: "idle",
 };
@@ -304,8 +312,8 @@ function App() {
             id: uid(), locationId: selectedId, direction: newRev.direction, equipment: newRev.equipment,
             scheduling: newRev.scheduling, apptKept: newRev.scheduling === "appointment" ? newRev.apptKept : null,
             apptMissReason: newRev.apptKept === "no" ? newRev.apptMissReason : "",
-            checkInWait: newRev.checkInWait ? Number(newRev.checkInWait) : null,
-            dockTime: newRev.dockTime ? Number(newRev.dockTime) : null,
+            checkInWait: newRev.checkInWaitTouched ? Number(newRev.checkInWait) : null,
+            dockTime: newRev.dockTimeTouched ? Number(newRev.dockTime) : null,
             lumperUsed: newRev.lumperUsed,
             lumperFee: newRev.lumperUsed === "yes" && newRev.lumperFee ? Number(newRev.lumperFee) : null,
             lumperPaidBy: newRev.lumperUsed === "yes" ? newRev.lumperPaidBy : null,
@@ -545,10 +553,10 @@ function App() {
             newRev.scheduling === "appointment" && (React.createElement(Field, { label: "Did you make your appointment time?" },
                 React.createElement(ChipRow, { options: ["yes", "no"], value: newRev.apptKept, onChange: v => setNewRev({ ...newRev, apptKept: v }), colorMap: { yes: "#4FA36B", no: "#D9694F" } }),
                 newRev.apptKept === "no" && React.createElement("input", { value: newRev.apptMissReason, onChange: e => setNewRev({ ...newRev, apptMissReason: e.target.value }), placeholder: "Why? (traffic, prior stop, dispatch error...)", style: { ...inputStyle, marginTop: 8 } }))),
-            React.createElement(Field, { label: "Time from arrival to being called to a dock (minutes)" },
-                React.createElement("input", { type: "number", value: newRev.checkInWait, onChange: e => setNewRev({ ...newRev, checkInWait: e.target.value }), placeholder: "e.g. 45", style: inputStyle })),
-            React.createElement(Field, { label: `Time actually ${newRev.direction === "pickup" ? "loading" : "unloading"} at the dock (minutes)` },
-                React.createElement("input", { type: "number", value: newRev.dockTime, onChange: e => setNewRev({ ...newRev, dockTime: e.target.value }), placeholder: "e.g. 40", style: inputStyle })),
+            React.createElement(Field, { label: `${newRev.scheduling === "appointment" ? "Time past your appointment before you reached the dock" : "Time from arrival to being called to a dock"}: ${formatHM(newRev.checkInWait)}` },
+                React.createElement("input", { type: "range", min: 0, max: 600, step: 15, value: newRev.checkInWait, onChange: e => setNewRev({ ...newRev, checkInWait: Number(e.target.value), checkInWaitTouched: true }), style: { width: "100%" } })),
+            React.createElement(Field, { label: `Time actually ${newRev.direction === "pickup" ? "loading" : "unloading"} at the dock: ${formatHM(newRev.dockTime)}` },
+                React.createElement("input", { type: "range", min: 0, max: 600, step: 15, value: newRev.dockTime, onChange: e => setNewRev({ ...newRev, dockTime: Number(e.target.value), dockTimeTouched: true }), style: { width: "100%" } })),
             React.createElement(Field, { label: "Did you need a lumper?" },
                 React.createElement(ChipRow, { options: ["yes", "no"], value: newRev.lumperUsed, onChange: v => setNewRev({ ...newRev, lumperUsed: v }) })),
             newRev.lumperUsed === "yes" && React.createElement(React.Fragment, null,
