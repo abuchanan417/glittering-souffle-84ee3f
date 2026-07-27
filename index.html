@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MilePost — Dock & Stop Intel</title>
+<meta name="description" content="Crowdsourced dock, detention, and stop intel for drivers." />
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #14171A; font-family: system-ui, -apple-system, sans-serif; color: #F2F0E9; }
+  input, textarea { font-family: inherit; }
+  ::placeholder { color: #6B7278; }
+  button { font-family: inherit; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useCallback } = React;
+
+/* ---------- STORAGE LAYER -----------------------------------------------
+   This build uses localStorage: data is per-browser, per-device, NOT
+   shared between drivers. That's fine for solo testing on your own phone.
+
+   TO GO LIVE WITH REAL SHARED DATA ACROSS DRIVERS:
+   Swap the two functions below (loadShared / saveShared) for calls to a
+   free Supabase project (supabase.com — free tier, 2 minute signup).
+   Once you have a project URL + anon key, this is a small, contained edit.
+-------------------------------------------------------------------------- */
+const SHARED_KEY = "milepost_shared_v1";
+const MINE_KEY = "milepost_mine_v1";
+
+function loadShared() {
+  try {
+    const raw = localStorage.getItem(SHARED_KEY);
+    return raw ? JSON.parse(raw) : { locations: [], reviews: [] };
+  } catch (e) { return { locations: [], reviews: [] }; }
+}
+function saveShared(data) {
+  try { localStorage.setItem(SHARED_KEY, JSON.stringify(data)); return true; }
+  catch (e) { return false; }
+}
+function loadMine() {
+  try { const raw = localStorage.getItem(MINE_KEY); return raw ? JSON.parse(raw).count || 0 : 0; }
+  catch (e) { return 0; }
+}
+function saveMine(count) {
+  try { localStorage.setItem(MINE_KEY, JSON.stringify({ count })); } catch (e) {}
+}
+
+/* ---------- CONSTANTS ----------------------------------------------- */
+const TYPE_META = {
+  truckstop: { label: "Truck Stop", emoji: "⛽", color: "#FBC02D" },
+  shipper: { label: "Shipper", emoji: "📦", color: "#4FA3D1" },
+  receiver: { label: "Receiver", emoji: "🏭", color: "#D96B4F" },
+};
+const AMENITIES = ["Restroom", "Food nearby", "Showers", "Easy backing", "Well lit"];
+const EQUIPMENT = ["Dry Van", "Reefer", "Flatbed", "Step Deck", "Power Only", "Tanker", "Other"];
+const TIERS = [
+  { count: 10, reward: "Founding Contributor badge" },
+  { count: 25, reward: "Early access to new features" },
+  { count: 100, reward: "1 month free once paid plans launch" },
+  { count: 250, reward: "Lifetime founding-member discount" },
+];
+
+function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+function avg(nums) {
+  const c = nums.filter((n) => typeof n === "number" && !isNaN(n));
+  if (!c.length) return null;
+  return c.reduce((a, b) => a + b, 0) / c.length;
+}
+function pct(count, total) { return total ? Math.round((count / total) * 100) : null; }
+function distanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function getGeo() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve({ error: "Geolocation not supported on this device." });
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => resolve({ error: err.message || "Location permission denied." }),
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  });
+}
+
+/* ---------- SMALL COMPONENTS ----------------------------------------- */
+function ScoreBadge({ score, size }) {
+  const dim = size === "lg" ? 72 : 44;
+  const fontSize = size === "lg" ? 24 : 15;
+  const display = score === null ? "—" : score.toFixed(1);
+  const bg = score === null ? "#3A4147" : score >= 4 ? "#1B5E3A" : score >= 2.5 ? "#8A6A16" : "#7A2E28";
+  return (
+    <div style={{ width: dim, height: dim, background: bg, border: "3px solid #F2F0E9", borderRadius: 10,
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <span style={{ fontWeight: 800, fontSize, color: "#F2F0E9", lineHeight: 1 }}>{display}</span>
+      {size === "lg" && <span style={{ fontSize: 9, opacity: .8, letterSpacing: 1, marginTop: 2 }}>DOCK SCORE</span>}
+    </div>
+  );
+}
+function Sign({ children }) {
+  return <div style={{ background: "#1B5E3A", border: "3px solid #F2F0E9", borderRadius: 4, padding: "10px 18px", display: "inline-block" }}>{children}</div>;
+}
+function StatBox({ label, value, emoji }) {
+  return (
+    <div style={{ background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: 12 }}>
+      <div style={{ fontSize: 11, color: "#9AA0A6", textTransform: "uppercase", letterSpacing: .5, marginBottom: 4 }}>{emoji} {label}</div>
+      <div style={{ fontSize: 17, fontWeight: 800 }}>{value}</div>
+    </div>
+  );
+}
+function Field({ label, children, hint }) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 12, color: "#9AA0A6", marginBottom: 6, fontWeight: 600 }}>{label}</div>
+      {children}
+      {hint && <div style={{ fontSize: 11, color: "#6B7278", marginTop: 4 }}>{hint}</div>}
+    </div>
+  );
+}
+function ChipRow({ options, value, onChange, multi, colorMap }) {
+  const isActive = (o) => multi ? value.includes(o) : value === o;
+  const toggle = (o) => multi ? onChange(value.includes(o) ? value.filter(v=>v!==o) : [...value,o]) : onChange(o);
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      {options.map((opt) => {
+        const active = isActive(opt);
+        const color = (colorMap && colorMap[opt]) || "#FBC02D";
+        return (
+          <button key={opt} onClick={() => toggle(opt)} style={{
+            padding: "8px 14px", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer",
+            border: active ? `2px solid ${color}` : "1px solid #3A4147",
+            background: active ? "rgba(255,255,255,.05)" : "transparent",
+            color: active ? color : "#9AA0A6" }}>{opt}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+const inputStyle = { width: "100%", background: "#1F2428", border: "1px solid #3A4147", borderRadius: 6,
+  padding: "10px 12px", color: "#F2F0E9", fontSize: 14, outline: "none", boxSizing: "border-box" };
+const submitBtnStyle = { width: "100%", background: "#FBC02D", color: "#14171A", border: "none", borderRadius: 6,
+  padding: "13px", fontWeight: 700, fontSize: 14, cursor: "pointer", marginTop: 4 };
+
+const emptyReview = {
+  direction: "delivery", equipment: "Dry Van", scheduling: "appointment", apptKept: "yes", apptMissReason: "",
+  checkInWait: "", dockTime: "", lumperUsed: "no", lumperFee: "", lumperPaidBy: "driver",
+  detentionOwed: "no", detentionPaid: "yes", overnightParking: "unknown", dockEase: 3,
+  amenities: [], notes: "", initials: "", gps: null, gpsStatus: "idle",
+};
+
+/* ---------- MAIN APP --------------------------------------------------- */
+function App() {
+  const [data, setData] = useState({ locations: [], reviews: [] });
+  const [myCount, setMyCount] = useState(0);
+  const [filterType, setFilterType] = useState("all");
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState(null);
+  const [view, setView] = useState("list");
+  const [toast, setToast] = useState(null);
+  const [newLoc, setNewLoc] = useState({ name: "", type: "shipper", address: "", corridor: "", notes: "", lat: null, lng: null });
+  const [locGeoStatus, setLocGeoStatus] = useState("idle");
+  const [newRev, setNewRev] = useState(emptyReview);
+
+  useEffect(() => { setData(loadShared()); setMyCount(loadMine()); }, []);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2600); };
+  const persist = (next) => { setData(next); saveShared(next); };
+
+  const { locations, reviews } = data;
+
+  const locationStats = (locId) => {
+    const revs = reviews.filter(r => r.locationId === locId).sort((a,b) => b.createdAt - a.createdAt);
+    const checkInWait = avg(revs.map(r => r.checkInWait));
+    const dockTime = avg(revs.map(r => r.dockTime));
+    const ease = avg(revs.map(r => r.dockEase));
+    const lumper = avg(revs.filter(r => r.lumperUsed === "yes").map(r => r.lumperFee));
+    const detOwed = revs.filter(r => r.detentionOwed === "yes");
+    const detReliablePct = pct(detOwed.filter(r => r.detentionPaid === "yes").length, detOwed.length);
+    const apptRevs = revs.filter(r => r.scheduling === "appointment");
+    const apptKeptPct = pct(apptRevs.filter(r => r.apptKept === "yes").length, apptRevs.length);
+    const parkingVotes = revs.map(r => r.overnightParking).filter(v => v && v !== "unknown");
+    const parkingYes = pct(parkingVotes.filter(v => v === "yes").length, parkingVotes.length);
+    const equipCounts = {};
+    revs.forEach(r => { if (r.equipment) equipCounts[r.equipment] = (equipCounts[r.equipment]||0)+1; });
+    const verifiedCount = revs.filter(r => r.gpsStatus === "verified").length;
+    let score = null;
+    if (revs.length) {
+      const easeScore = ease !== null ? ease : 3;
+      const dwell = (checkInWait||0) + (dockTime||0);
+      const waitScore = dwell ? Math.max(0, 5 - dwell/60) : 3;
+      const detScore = detReliablePct !== null ? detReliablePct/20 : 3;
+      const apptScore = apptKeptPct !== null ? apptKeptPct/20 : 3;
+      score = Math.min(5, Math.max(0, easeScore*.3 + waitScore*.3 + detScore*.2 + apptScore*.2));
+    }
+    const byDir = (dir) => {
+      const d = revs.filter(r => r.direction === dir);
+      return { count: d.length, checkInWait: avg(d.map(r=>r.checkInWait)), dockTime: avg(d.map(r=>r.dockTime)) };
+    };
+    return { count: revs.length, checkInWait, dockTime, ease, lumper, detReliablePct, apptKeptPct,
+      parkingYes, equipCounts, verifiedCount, score, revs, pickup: byDir("pickup"), delivery: byDir("delivery") };
+  };
+
+  const filtered = locations
+    .filter(l => filterType === "all" || l.type === filterType)
+    .filter(l => !query || l.name.toLowerCase().includes(query.toLowerCase()) || (l.corridor||"").toLowerCase().includes(query.toLowerCase()))
+    .map(l => ({ ...l, stats: locationStats(l.id) }));
+
+  const selected = locations.find(l => l.id === selectedId);
+  const selectedStats = selected ? locationStats(selected.id) : null;
+
+  const nextTier = TIERS.find(t => myCount < t.count);
+  const prevTierCount = [...TIERS].reverse().find(t => myCount >= t.count)?.count || 0;
+  const tierProgressPct = nextTier ? Math.min(100, Math.round(((myCount-prevTierCount)/(nextTier.count-prevTierCount))*100)) : 100;
+
+  const captureLocGeo = async () => {
+    setLocGeoStatus("checking");
+    const r = await getGeo();
+    if (r.error) { setLocGeoStatus("error"); showToast(r.error); return; }
+    setNewLoc(p => ({ ...p, lat: r.lat, lng: r.lng }));
+    setLocGeoStatus("done");
+    showToast("Location coordinates captured.");
+  };
+
+  const submitLocation = () => {
+    if (!newLoc.name.trim()) return showToast("Give it a name first.");
+    const loc = { id: uid(), ...newLoc, createdAt: Date.now() };
+    const next = { locations: [...locations, loc], reviews };
+    persist(next);
+    setNewLoc({ name: "", type: "shipper", address: "", corridor: "", notes: "", lat: null, lng: null });
+    setLocGeoStatus("idle"); setSelectedId(loc.id); setView("detail");
+    showToast("Location added.");
+  };
+
+  const verifyReviewGeo = async () => {
+    setNewRev(p => ({ ...p, gpsStatus: "checking" }));
+    const r = await getGeo();
+    if (r.error) { setNewRev(p => ({ ...p, gpsStatus: "error" })); showToast(r.error); return; }
+    if (selected && selected.lat && selected.lng) {
+      const dist = distanceMeters(r.lat, r.lng, selected.lat, selected.lng);
+      const verified = dist < 500;
+      setNewRev(p => ({ ...p, gps: r, gpsStatus: verified ? "verified" : "mismatch" }));
+      showToast(verified ? "Verified — you're on site." : "That's more than 500m from this stop's saved location.");
+    } else {
+      setNewRev(p => ({ ...p, gps: r, gpsStatus: "verified" }));
+      showToast("Location captured (this stop has no saved coordinates to check against yet).");
+    }
+  };
+
+  const submitReview = () => {
+    const rev = {
+      id: uid(), locationId: selectedId, direction: newRev.direction, equipment: newRev.equipment,
+      scheduling: newRev.scheduling, apptKept: newRev.scheduling === "appointment" ? newRev.apptKept : null,
+      apptMissReason: newRev.apptKept === "no" ? newRev.apptMissReason : "",
+      checkInWait: newRev.checkInWait ? Number(newRev.checkInWait) : null,
+      dockTime: newRev.dockTime ? Number(newRev.dockTime) : null,
+      lumperUsed: newRev.lumperUsed,
+      lumperFee: newRev.lumperUsed === "yes" && newRev.lumperFee ? Number(newRev.lumperFee) : null,
+      lumperPaidBy: newRev.lumperUsed === "yes" ? newRev.lumperPaidBy : null,
+      detentionOwed: newRev.detentionOwed,
+      detentionPaid: newRev.detentionOwed === "yes" ? newRev.detentionPaid : null,
+      overnightParking: newRev.overnightParking, dockEase: Number(newRev.dockEase),
+      amenities: newRev.amenities, notes: newRev.notes, initials: newRev.initials || "Anon",
+      gpsStatus: (newRev.gpsStatus === "verified" || newRev.gpsStatus === "mismatch") ? newRev.gpsStatus : "not_checked",
+      createdAt: Date.now(),
+    };
+    const next = { locations, reviews: [...reviews, rev] };
+    persist(next);
+    setNewRev(emptyReview); setView("detail");
+    const newCount = myCount + 1; setMyCount(newCount); saveMine(newCount);
+    const justHit = TIERS.find(t => t.count === newCount);
+    showToast(justHit ? `Milestone hit: ${justHit.reward}` : "Review posted. Thanks for the intel.");
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", paddingBottom: 40 }}>
+      <div style={{ padding: "24px 20px 16px", borderBottom: "1px solid #2A2F34" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14, flexWrap: "wrap" }}>
+          <Sign><span style={{ fontWeight: 800, fontSize: 22, letterSpacing: 1.5 }}>MILEPOST</span></Sign>
+          <span style={{ fontSize: 12, color: "#9AA0A6" }}>Dock & stop intel, from drivers who've been there</span>
+        </div>
+
+        {view === "list" && <>
+          <div style={{ background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: "12px 14px", marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#FBC02D" }}>{myCount} stop{myCount!==1?"s":""} logged</span>
+              <span style={{ fontSize: 11, color: "#9AA0A6" }}>{nextTier ? `${nextTier.count-myCount} more to: ${nextTier.reward}` : "All milestones unlocked"}</span>
+            </div>
+            <div style={{ background: "#14171A", borderRadius: 4, height: 6, overflow: "hidden" }}>
+              <div style={{ background: "#FBC02D", height: "100%", width: tierProgressPct+"%" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            {["all","truckstop","shipper","receiver"].map(t => (
+              <button key={t} onClick={() => setFilterType(t)} style={{
+                fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6,
+                border: filterType===t ? "2px solid #FBC02D" : "1px solid #3A4147",
+                background: filterType===t ? "rgba(251,192,45,.12)" : "transparent",
+                color: filterType===t ? "#FBC02D" : "#9AA0A6", cursor: "pointer" }}>
+                {t==="all"?"All":TYPE_META[t].label+"s"}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ flex:1, display:"flex", alignItems:"center", background:"#1F2428", border:"1px solid #3A4147", borderRadius:6, padding:"8px 12px" }}>
+              🔍<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search by name or corridor"
+                style={{ background:"transparent", border:"none", outline:"none", color:"#F2F0E9", marginLeft:8, flex:1, fontSize:14 }} />
+            </div>
+            <button onClick={() => setView("addLocation")} style={{ background:"#FBC02D", color:"#14171A", border:"none", borderRadius:6, padding:"0 16px", fontWeight:700, fontSize:13, cursor:"pointer" }}>+ Add stop</button>
+          </div>
+        </>}
+
+        {view !== "list" && (
+          <button onClick={() => setView(view==="addReview"?"detail":"list")} style={{ background:"transparent", border:"none", color:"#9AA0A6", fontSize:13, cursor:"pointer", padding:0 }}>← Back</button>
+        )}
+      </div>
+
+      {view === "list" && (
+        <div style={{ padding: "16px 20px" }}>
+          {filtered.length === 0 && (
+            <div style={{ textAlign:"center", padding:"60px 20px", color:"#9AA0A6" }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>📍</div>
+              <div style={{ fontSize:15, marginBottom:6 }}>No stops here yet.</div>
+              <div style={{ fontSize:13 }}>Be the first to add one.</div>
+            </div>
+          )}
+          <div style={{ display:"grid", gap:12 }}>
+            {filtered.map(l => {
+              const meta = TYPE_META[l.type];
+              return (
+                <div key={l.id} onClick={() => { setSelectedId(l.id); setView("detail"); }}
+                  style={{ background:"#1F2428", border:"1px solid #2A2F34", borderRadius:8, padding:14, display:"flex", gap:14, alignItems:"center", cursor:"pointer" }}>
+                  <ScoreBadge score={l.stats.score} />
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:11, color:meta.color, fontWeight:700, textTransform:"uppercase", marginBottom:3 }}>{meta.emoji} {meta.label} {l.lat && "✓"}</div>
+                    <div style={{ fontWeight:700, fontSize:15, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{l.name}</div>
+                    <div style={{ fontSize:12, color:"#9AA0A6" }}>{l.corridor || l.address || "No location notes yet"}</div>
+                    <div style={{ display:"flex", gap:12, marginTop:6, fontSize:12, color:"#B8BCC0", flexWrap:"wrap" }}>
+                      {l.stats.checkInWait !== null && <span>⏱ {Math.round(l.stats.checkInWait)}m to dock</span>}
+                      {l.stats.apptKeptPct !== null && <span>{l.stats.apptKeptPct}% appts kept</span>}
+                      <span>{l.stats.count} review{l.stats.count!==1?"s":""}</span>
+                    </div>
+                  </div>
+                  <span style={{ color:"#4A5157" }}>›</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {view === "detail" && selected && selectedStats && (
+        <div style={{ padding:"16px 20px" }}>
+          <div style={{ display:"flex", gap:14, alignItems:"center", marginBottom:16 }}>
+            <ScoreBadge score={selectedStats.score} size="lg" />
+            <div>
+              <div style={{ fontSize:11, color:TYPE_META[selected.type].color, fontWeight:700, textTransform:"uppercase" }}>{TYPE_META[selected.type].label}</div>
+              <div style={{ fontWeight:800, fontSize:20 }}>{selected.name}</div>
+              <div style={{ fontSize:13, color:"#9AA0A6" }}>{selected.address || selected.corridor}</div>
+              {selected.lat && <div style={{ fontSize:11, color:"#4FA36B", marginTop:2 }}>✓ Coordinates on file — reviews can be GPS-verified here</div>}
+            </div>
+          </div>
+          {selected.notes && <div style={{ background:"#1F2428", borderRadius:8, padding:12, fontSize:13, color:"#B8BCC0", marginBottom:16 }}>{selected.notes}</div>}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+            <StatBox label="Avg check-in wait" value={selectedStats.checkInWait!==null?`${Math.round(selectedStats.checkInWait)} min`:"—"} emoji="⏱" />
+            <StatBox label="Avg load/unload" value={selectedStats.dockTime!==null?`${Math.round(selectedStats.dockTime)} min`:"—"} emoji="🚚" />
+            <StatBox label="Appointments kept" value={selectedStats.apptKeptPct!==null?`${selectedStats.apptKeptPct}%`:"—"} emoji="📅" />
+            <StatBox label="Pays detention owed" value={selectedStats.detReliablePct!==null?`${selectedStats.detReliablePct}%`:"—"} emoji="✅" />
+            <StatBox label="Avg lumper fee" value={selectedStats.lumper!==null?`$${Math.round(selectedStats.lumper)}`:"—"} emoji="💵" />
+            <StatBox label="Overnight parking" value={selectedStats.parkingYes!==null?`${selectedStats.parkingYes}% say yes`:"—"} emoji="📍" />
+          </div>
+
+          {(selectedStats.pickup.count>0 || selectedStats.delivery.count>0) && (
+            <div style={{ background:"#1F2428", border:"1px solid #2A2F34", borderRadius:8, padding:12, marginBottom:14 }}>
+              <div style={{ fontSize:11, color:"#9AA0A6", fontWeight:700, textTransform:"uppercase", marginBottom:8 }}>Pickup vs delivery</div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, fontSize:12 }}>
+                <div>
+                  <div style={{ color:"#4FA3D1", fontWeight:700, marginBottom:4 }}>↑ Pickup ({selectedStats.pickup.count})</div>
+                  <div style={{ color:"#B8BCC0" }}>{selectedStats.pickup.checkInWait!==null?`${Math.round(selectedStats.pickup.checkInWait)}m to dock`:"no data"}</div>
+                  <div style={{ color:"#B8BCC0" }}>{selectedStats.pickup.dockTime!==null?`${Math.round(selectedStats.pickup.dockTime)}m loading`:""}</div>
+                </div>
+                <div>
+                  <div style={{ color:"#D96B4F", fontWeight:700, marginBottom:4 }}>↓ Delivery ({selectedStats.delivery.count})</div>
+                  <div style={{ color:"#B8BCC0" }}>{selectedStats.delivery.checkInWait!==null?`${Math.round(selectedStats.delivery.checkInWait)}m to dock`:"no data"}</div>
+                  <div style={{ color:"#B8BCC0" }}>{selectedStats.delivery.dockTime!==null?`${Math.round(selectedStats.delivery.dockTime)}m unloading`:""}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {Object.keys(selectedStats.equipCounts).length>0 && (
+            <div style={{ marginBottom:16 }}>
+              <div style={{ fontSize:11, color:"#9AA0A6", fontWeight:700, textTransform:"uppercase", marginBottom:6 }}>Equipment seen here</div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                {Object.entries(selectedStats.equipCounts).map(([eq,count]) => (
+                  <span key={eq} style={{ fontSize:11, background:"#2A2F34", padding:"3px 10px", borderRadius:10, color:"#B8BCC0" }}>{eq} ({count})</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <button onClick={() => setView("addReview")} style={submitBtnStyle}>+ Leave a review</button>
+
+          <div style={{ fontSize:13, fontWeight:700, color:"#9AA0A6", margin:"20px 0 10px", textTransform:"uppercase" }}>
+            {selectedStats.count} Review{selectedStats.count!==1?"s":""} {selectedStats.verifiedCount>0 && `· ${selectedStats.verifiedCount} GPS-verified`}
+          </div>
+          <div style={{ display:"grid", gap:10 }}>
+            {selectedStats.revs.map(r => (
+              <div key={r.id} style={{ background:"#1F2428", border:"1px solid #2A2F34", borderRadius:8, padding:12 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                  <span style={{ fontWeight:700, fontSize:13 }}>{r.initials} {r.direction==="pickup"?"↑":"↓"} {r.gpsStatus==="verified"&&"✓"}</span>
+                  <span style={{ fontSize:11, color:"#6B7278" }}>{new Date(r.createdAt).toLocaleDateString()}</span>
+                </div>
+                <div style={{ display:"flex", gap:10, flexWrap:"wrap", fontSize:12, color:"#B8BCC0", marginBottom:6 }}>
+                  <span>{r.equipment}</span>
+                  <span>{r.scheduling==="appointment" ? (r.apptKept==="yes"?"Appt kept":"Appt missed") : "FCFS"}</span>
+                  {r.checkInWait!==null && <span>{r.checkInWait}m to dock</span>}
+                  {r.dockTime!==null && <span>{r.dockTime}m {r.direction==="pickup"?"loading":"unloading"}</span>}
+                </div>
+                <div style={{ display:"flex", gap:10, flexWrap:"wrap", fontSize:12, color:"#B8BCC0", marginBottom:6 }}>
+                  {r.lumperUsed==="yes" && <span>${r.lumperFee} lumper ({r.lumperPaidBy})</span>}
+                  {r.detentionOwed==="yes" && <span>{r.detentionPaid==="yes"?"👍 Paid detention owed":"👎 Didn't pay detention owed"}</span>}
+                  {r.overnightParking!=="unknown" && <span>Overnight parking: {r.overnightParking}</span>}
+                  <span>Dock ease {r.dockEase}/5</span>
+                </div>
+                {r.apptMissReason && <div style={{ fontSize:12, color:"#9AA0A6", marginBottom:6 }}>Missed reason: {r.apptMissReason}</div>}
+                {r.amenities.length>0 && (
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom: r.notes?6:0 }}>
+                    {r.amenities.map(a => <span key={a} style={{ fontSize:10, background:"#2A2F34", padding:"2px 8px", borderRadius:10, color:"#9AA0A6" }}>{a}</span>)}
+                  </div>
+                )}
+                {r.notes && <div style={{ fontSize:13, color:"#D8DADC" }}>{r.notes}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {view === "addLocation" && (
+        <div style={{ padding:"16px 20px" }}>
+          <div style={{ fontWeight:800, fontSize:18, marginBottom:16 }}>Add a stop</div>
+          <Field label="Name"><input value={newLoc.name} onChange={e=>setNewLoc({...newLoc,name:e.target.value})} placeholder="e.g. Acme Distribution Center" style={inputStyle} /></Field>
+          <Field label="Type">
+            <div style={{ display:"flex", gap:8 }}>
+              {Object.entries(TYPE_META).map(([key,meta]) => (
+                <button key={key} onClick={()=>setNewLoc({...newLoc,type:key})} style={{
+                  flex:1, padding:"10px", borderRadius:6, fontSize:13, fontWeight:700, cursor:"pointer",
+                  border: newLoc.type===key?`2px solid ${meta.color}`:"1px solid #3A4147",
+                  background: newLoc.type===key?"rgba(255,255,255,.05)":"transparent",
+                  color: newLoc.type===key?meta.color:"#9AA0A6" }}>{meta.label}</button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Address"><input value={newLoc.address} onChange={e=>setNewLoc({...newLoc,address:e.target.value})} placeholder="Street, city, state" style={inputStyle} /></Field>
+          <Field label="Corridor / route"><input value={newLoc.corridor} onChange={e=>setNewLoc({...newLoc,corridor:e.target.value})} placeholder="e.g. I-24 near Exit 45" style={inputStyle} /></Field>
+          <Field label="GPS coordinates" hint="Capture while physically at the stop so reviews can be verified against it.">
+            <button onClick={captureLocGeo} style={{ display:"flex", alignItems:"center", gap:8, background:"#2A2F34", border:"1px solid #3A4147", borderRadius:6, padding:"10px 14px", color: newLoc.lat?"#4FA36B":"#F2F0E9", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+              📍 {locGeoStatus==="checking"?"Getting location...":newLoc.lat?`Captured (${newLoc.lat.toFixed(4)}, ${newLoc.lng.toFixed(4)})`:"Use my current location"}
+            </button>
+          </Field>
+          <Field label="Notes (optional)"><textarea value={newLoc.notes} onChange={e=>setNewLoc({...newLoc,notes:e.target.value})} placeholder="Anything else drivers should know" style={{...inputStyle,minHeight:70,resize:"vertical"}} /></Field>
+          <button onClick={submitLocation} style={submitBtnStyle}>Save stop</button>
+        </div>
+      )}
+
+      {view === "addReview" && selected && (
+        <div style={{ padding:"16px 20px" }}>
+          <div style={{ fontWeight:800, fontSize:18, marginBottom:4 }}>Review: {selected.name}</div>
+          <div style={{ fontSize:13, color:"#9AA0A6", marginBottom:16 }}>Give the next driver the real picture. Takes a minute.</div>
+
+          <Field label="Were you picking up or delivering?">
+            <ChipRow options={["pickup","delivery"]} value={newRev.direction} onChange={v=>setNewRev({...newRev,direction:v})} colorMap={{pickup:"#4FA3D1",delivery:"#D96B4F"}} />
+          </Field>
+          <Field label="What were you hauling?"><ChipRow options={EQUIPMENT} value={newRev.equipment} onChange={v=>setNewRev({...newRev,equipment:v})} /></Field>
+          <Field label="Appointment or first-come-first-served?"><ChipRow options={["appointment","fcfs"]} value={newRev.scheduling} onChange={v=>setNewRev({...newRev,scheduling:v})} /></Field>
+
+          {newRev.scheduling==="appointment" && (
+            <Field label="Did you make your appointment time?">
+              <ChipRow options={["yes","no"]} value={newRev.apptKept} onChange={v=>setNewRev({...newRev,apptKept:v})} colorMap={{yes:"#4FA36B",no:"#D9694F"}} />
+              {newRev.apptKept==="no" && <input value={newRev.apptMissReason} onChange={e=>setNewRev({...newRev,apptMissReason:e.target.value})} placeholder="Why? (traffic, prior stop, dispatch error...)" style={{...inputStyle,marginTop:8}} />}
+            </Field>
+          )}
+
+          <Field label="Time from arrival to being called to a dock (minutes)"><input type="number" value={newRev.checkInWait} onChange={e=>setNewRev({...newRev,checkInWait:e.target.value})} placeholder="e.g. 45" style={inputStyle} /></Field>
+          <Field label={`Time actually ${newRev.direction==="pickup"?"loading":"unloading"} at the dock (minutes)`}><input type="number" value={newRev.dockTime} onChange={e=>setNewRev({...newRev,dockTime:e.target.value})} placeholder="e.g. 40" style={inputStyle} /></Field>
+
+          <Field label="Did you need a lumper?"><ChipRow options={["yes","no"]} value={newRev.lumperUsed} onChange={v=>setNewRev({...newRev,lumperUsed:v})} /></Field>
+          {newRev.lumperUsed==="yes" && <>
+            <Field label="Lumper fee ($)"><input type="number" value={newRev.lumperFee} onChange={e=>setNewRev({...newRev,lumperFee:e.target.value})} placeholder="e.g. 150" style={inputStyle} /></Field>
+            <Field label="Who paid it?"><ChipRow options={["driver","carrier","prepaid/reefer fee"]} value={newRev.lumperPaidBy} onChange={v=>setNewRev({...newRev,lumperPaidBy:v})} /></Field>
+          </>}
+
+          <Field label="Were you owed detention pay (waited past free time)?"><ChipRow options={["yes","no"]} value={newRev.detentionOwed} onChange={v=>setNewRev({...newRev,detentionOwed:v})} /></Field>
+          {newRev.detentionOwed==="yes" && <Field label="Did they pay it?"><ChipRow options={["yes","no"]} value={newRev.detentionPaid} onChange={v=>setNewRev({...newRev,detentionPaid:v})} colorMap={{yes:"#4FA36B",no:"#D9694F"}} /></Field>}
+
+          <Field label="Overnight parking on site?"><ChipRow options={["yes","no","limited"]} value={newRev.overnightParking} onChange={v=>setNewRev({...newRev,overnightParking:v})} /></Field>
+          <Field label={`Dock ease: ${newRev.dockEase}/5`}><input type="range" min={1} max={5} value={newRev.dockEase} onChange={e=>setNewRev({...newRev,dockEase:e.target.value})} style={{width:"100%"}} /></Field>
+          <Field label="Amenities"><ChipRow options={AMENITIES} value={newRev.amenities} onChange={v=>setNewRev({...newRev,amenities:v})} multi /></Field>
+
+          <Field label="Verify you're actually here" hint="Optional, but verified reviews carry more weight.">
+            <button onClick={verifyReviewGeo} style={{ display:"flex", alignItems:"center", gap:8, background:"#2A2F34", border:"1px solid #3A4147", borderRadius:6, padding:"10px 14px", fontSize:13, fontWeight:700, cursor:"pointer",
+              color: newRev.gpsStatus==="verified"?"#4FA36B":newRev.gpsStatus==="mismatch"?"#D9694F":"#F2F0E9" }}>
+              📍 {newRev.gpsStatus==="checking"?"Checking...":newRev.gpsStatus==="verified"?"Verified on site":newRev.gpsStatus==="mismatch"?"Location doesn't match — tap to retry":"Verify my location"}
+            </button>
+          </Field>
+
+          <Field label="Notes (optional)"><textarea value={newRev.notes} onChange={e=>setNewRev({...newRev,notes:e.target.value})} placeholder="Anything else worth flagging" style={{...inputStyle,minHeight:70,resize:"vertical"}} /></Field>
+          <Field label="Your initials (optional)"><input value={newRev.initials} onChange={e=>setNewRev({...newRev,initials:e.target.value})} placeholder="e.g. J.D." style={inputStyle} /></Field>
+
+          <button onClick={submitReview} style={submitBtnStyle}>Post review</button>
+        </div>
+      )}
+
+      {toast && (
+        <div style={{ position:"fixed", bottom:20, left:"50%", transform:"translateX(-50%)", background:"#1B5E3A", border:"2px solid #F2F0E9", borderRadius:6, padding:"10px 20px", fontSize:13, fontWeight:700, zIndex:50, maxWidth:"90%", textAlign:"center" }}>
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
