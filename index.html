@@ -160,6 +160,10 @@ function App() {
     const [myCount, setMyCount] = useState(0);
     const [filterType, setFilterType] = useState("all");
     const [query, setQuery] = useState("");
+    const [nearMe, setNearMe] = useState(false);
+    const [userGeo, setUserGeo] = useState(null);
+    const [nearMeStatus, setNearMeStatus] = useState("idle");
+    const [radiusMiles, setRadiusMiles] = useState(50);
     const [selectedId, setSelectedId] = useState(null);
     const [view, setView] = useState("list");
     const [toast, setToast] = useState(null);
@@ -205,13 +209,33 @@ function App() {
     const filtered = locations
         .filter(l => TYPE_META[l.type])
         .filter(l => filterType === "all" || l.type === filterType)
-        .filter(l => !query || l.name.toLowerCase().includes(query.toLowerCase()) || (l.corridor || "").toLowerCase().includes(query.toLowerCase()))
+        .filter(l => !query ||
+            l.name.toLowerCase().includes(query.toLowerCase()) ||
+            (l.corridor || "").toLowerCase().includes(query.toLowerCase()) ||
+            (l.address || "").toLowerCase().includes(query.toLowerCase()))
+        .filter(l => {
+            if (!nearMe || !userGeo) return true;
+            if (!l.lat || !l.lng) return false;
+            const miles = distanceMeters(userGeo.lat, userGeo.lng, l.lat, l.lng) / 1609.34;
+            return miles <= radiusMiles;
+        })
         .map(l => ({ ...l, stats: locationStats(l.id) }));
+    const noCoordCount = nearMe ? locations.filter(l => TYPE_META[l.type] && (!l.lat || !l.lng)).length : 0;
     const selected = locations.find(l => l.id === selectedId);
     const selectedStats = selected ? locationStats(selected.id) : null;
     const nextTier = TIERS.find(t => myCount < t.count);
     const prevTierCount = ((_a = [...TIERS].reverse().find(t => myCount >= t.count)) === null || _a === void 0 ? void 0 : _a.count) || 0;
     const tierProgressPct = nextTier ? Math.min(100, Math.round(((myCount - prevTierCount) / (nextTier.count - prevTierCount)) * 100)) : 100;
+    const toggleNearMe = async () => {
+        if (nearMe) { setNearMe(false); return; }
+        setNearMeStatus("checking");
+        const r = await getGeo();
+        if (r.error) { setNearMeStatus("error"); showToast(r.error); return; }
+        setUserGeo({ lat: r.lat, lng: r.lng });
+        setNearMe(true);
+        setNearMeStatus("done");
+    };
+
     const captureLocGeo = async () => {
         setLocGeoStatus("checking");
         const r = await getGeo();
@@ -284,10 +308,13 @@ function App() {
     };
     return (React.createElement("div", { style: { minHeight: "100vh", paddingBottom: 40 } },
         React.createElement("div", { style: { padding: "24px 20px 16px", borderBottom: "1px solid #2A2F34" } },
-            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 14, marginBottom: 14, flexWrap: "wrap" } },
-                React.createElement(Sign, null,
-                    React.createElement("span", { style: { fontWeight: 800, fontSize: 22, letterSpacing: 1.5 } }, "DOCKTRUTH")),
-                React.createElement("span", { style: { fontSize: 12, color: "#9AA0A6" } }, "What really happened at the dock — from the drivers who were there")),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, marginBottom: 14, flexWrap: "wrap" } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" } },
+                    React.createElement("button", { onClick: () => setView("list"), style: { background: "none", border: "none", padding: 0, cursor: "pointer" } },
+                        React.createElement(Sign, null,
+                            React.createElement("span", { style: { fontWeight: 800, fontSize: 22, letterSpacing: 1.5 } }, "DOCKTRUTH"))),
+                    React.createElement("span", { style: { fontSize: 12, color: "#9AA0A6" } }, "What really happened at the dock — from the drivers who were there")),
+                view !== "list" && React.createElement("button", { onClick: () => setView("list"), style: { display: "flex", alignItems: "center", gap: 6, background: "#1F2428", border: "1px solid #3A4147", borderRadius: 6, padding: "8px 12px", color: "#F2F0E9", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 } }, "\u2302 Home")),
             view === "list" && React.createElement(React.Fragment, null,
                 React.createElement("div", { style: { background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: "12px 14px", marginBottom: 14 } },
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
@@ -308,14 +335,34 @@ function App() {
                 React.createElement("div", { style: { display: "flex", gap: 10 } },
                     React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", background: "#1F2428", border: "1px solid #3A4147", borderRadius: 6, padding: "8px 12px" } },
                         "\uD83D\uDD0D",
-                        React.createElement("input", { value: query, onChange: e => setQuery(e.target.value), placeholder: "Search by name or corridor", style: { background: "transparent", border: "none", outline: "none", color: "#F2F0E9", marginLeft: 8, flex: 1, fontSize: 14 } })),
-                    React.createElement("button", { onClick: () => setView("addLocation"), style: { background: "#FBC02D", color: "#14171A", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "+ Add stop"))),
+                        React.createElement("input", { value: query, onChange: e => setQuery(e.target.value), placeholder: "Search by name, city, or corridor", style: { background: "transparent", border: "none", outline: "none", color: "#F2F0E9", marginLeft: 8, flex: 1, fontSize: 14 } })),
+                    React.createElement("button", { onClick: () => setView("addLocation"), style: { background: "#FBC02D", color: "#14171A", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "+ Add stop")),
+                React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" } },
+                    React.createElement("button", { onClick: toggleNearMe, style: {
+                        display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6, cursor: "pointer",
+                        border: nearMe ? "2px solid #FBC02D" : "1px solid #3A4147",
+                        background: nearMe ? "rgba(251,192,45,.12)" : "transparent",
+                        color: nearMe ? "#FBC02D" : "#9AA0A6",
+                    } }, "\uD83D\uDCCD ", nearMeStatus === "checking" ? "Locating..." : nearMe ? `Near me (${radiusMiles}mi)` : "Near me"),
+                    nearMe && [25, 50, 100, 250].map(r => (React.createElement("button", { key: r, onClick: () => setRadiusMiles(r), style: {
+                        fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 12, cursor: "pointer",
+                        border: radiusMiles === r ? "1px solid #FBC02D" : "1px solid #3A4147",
+                        background: radiusMiles === r ? "rgba(251,192,45,.1)" : "transparent",
+                        color: radiusMiles === r ? "#FBC02D" : "#6B7278",
+                    } }, r + "mi")))),
+                nearMe && noCoordCount > 0 && React.createElement("div", { style: { fontSize: 11, color: "#6B7278", marginTop: 6 } },
+                    `${noCoordCount} stop${noCoordCount !== 1 ? "s" : ""} without saved coordinates aren't shown in "near me" — they'll still show up in a text search.`)),
             view !== "list" && (React.createElement("button", { onClick: () => setView(view === "addReview" ? "detail" : "list"), style: { background: "transparent", border: "none", color: "#9AA0A6", fontSize: 13, cursor: "pointer", padding: 0 } }, "\u2190 Back"))),
         view === "list" && (React.createElement("div", { style: { padding: "16px 20px" } },
             filtered.length === 0 && (React.createElement("div", { style: { textAlign: "center", padding: "60px 20px", color: "#9AA0A6" } },
                 React.createElement("div", { style: { fontSize: 32, marginBottom: 12 } }, "\uD83D\uDCCD"),
-                React.createElement("div", { style: { fontSize: 15, marginBottom: 6 } }, "No stops here yet."),
-                React.createElement("div", { style: { fontSize: 13 } }, "Be the first to add one."))),
+                nearMe ? React.createElement(React.Fragment, null,
+                    React.createElement("div", { style: { fontSize: 15, marginBottom: 6 } }, `Nothing within ${radiusMiles} miles.`),
+                    React.createElement("div", { style: { fontSize: 13 } }, "Try a wider radius, or turn off \"Near me\" to see everything.")
+                ) : React.createElement(React.Fragment, null,
+                    React.createElement("div", { style: { fontSize: 15, marginBottom: 6 } }, "No stops here yet."),
+                    React.createElement("div", { style: { fontSize: 13 } }, "Be the first to add one.")
+                ))),
             React.createElement("div", { style: { display: "grid", gap: 12 } }, filtered.map(l => {
                 const meta = TYPE_META[l.type];
                 return (React.createElement("div", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); }, style: { background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: 14, display: "flex", gap: 14, alignItems: "center", cursor: "pointer" } },
