@@ -150,7 +150,7 @@ const submitBtnStyle = { width: "100%", background: "#FBC02D", color: "#14171A",
 const emptyReview = {
     direction: "delivery", equipment: "Dry Van", scheduling: "appointment", apptKept: "yes", apptMissReason: "",
     checkInWait: "", dockTime: "", lumperUsed: "no", lumperFee: "", lumperPaidBy: "driver",
-    detentionOwed: "no", detentionPaid: "yes", overnightParking: "unknown", dockEase: 3,
+    detentionOwed: "no", overnightParking: "unknown", dockEase: 3,
     amenities: [], notes: "", initials: "", gps: null, gpsStatus: "idle",
 };
 /* ---------- MAIN APP --------------------------------------------------- */
@@ -164,6 +164,8 @@ function App() {
     const [userGeo, setUserGeo] = useState(null);
     const [nearMeStatus, setNearMeStatus] = useState("idle");
     const [radiusMiles, setRadiusMiles] = useState(50);
+    const [mergeMode, setMergeMode] = useState(false);
+    const [mergeQuery, setMergeQuery] = useState("");
     const [selectedId, setSelectedId] = useState(null);
     const [view, setView] = useState("list");
     const [toast, setToast] = useState(null);
@@ -180,8 +182,7 @@ function App() {
         const dockTime = avg(revs.map(r => r.dockTime));
         const ease = avg(revs.map(r => r.dockEase));
         const lumper = avg(revs.filter(r => r.lumperUsed === "yes").map(r => r.lumperFee));
-        const detOwed = revs.filter(r => r.detentionOwed === "yes");
-        const detReliablePct = pct(detOwed.filter(r => r.detentionPaid === "yes").length, detOwed.length);
+        const detentionFreqPct = pct(revs.filter(r => r.detentionOwed === "yes").length, revs.length);
         const apptRevs = revs.filter(r => r.scheduling === "appointment");
         const apptKeptPct = pct(apptRevs.filter(r => r.apptKept === "yes").length, apptRevs.length);
         const parkingVotes = revs.map(r => r.overnightParking).filter(v => v && v !== "unknown");
@@ -195,15 +196,14 @@ function App() {
             const easeScore = ease !== null ? ease : 3;
             const dwell = (checkInWait || 0) + (dockTime || 0);
             const waitScore = dwell ? Math.max(0, 5 - dwell / 60) : 3;
-            const detScore = detReliablePct !== null ? detReliablePct / 20 : 3;
             const apptScore = apptKeptPct !== null ? apptKeptPct / 20 : 3;
-            score = Math.min(5, Math.max(0, easeScore * .3 + waitScore * .3 + detScore * .2 + apptScore * .2));
+            score = Math.min(5, Math.max(0, easeScore * .35 + waitScore * .35 + apptScore * .3));
         }
         const byDir = (dir) => {
             const d = revs.filter(r => r.direction === dir);
             return { count: d.length, checkInWait: avg(d.map(r => r.checkInWait)), dockTime: avg(d.map(r => r.dockTime)) };
         };
-        return { count: revs.length, checkInWait, dockTime, ease, lumper, detReliablePct, apptKeptPct,
+        return { count: revs.length, checkInWait, dockTime, ease, lumper, detentionFreqPct, apptKeptPct,
             parkingYes, equipCounts, verifiedCount, score, revs, pickup: byDir("pickup"), delivery: byDir("delivery") };
     };
     const filtered = locations
@@ -223,6 +223,11 @@ function App() {
     const noCoordCount = nearMe ? locations.filter(l => TYPE_META[l.type] && (!l.lat || !l.lng)).length : 0;
     const selected = locations.find(l => l.id === selectedId);
     const selectedStats = selected ? locationStats(selected.id) : null;
+    const possibleDuplicates = newLoc.name.trim().length > 2
+        ? locations.filter(l => TYPE_META[l.type] &&
+            (l.name.trim().toLowerCase().includes(newLoc.name.trim().toLowerCase()) ||
+             newLoc.name.trim().toLowerCase().includes(l.name.trim().toLowerCase())))
+        : [];
     const nextTier = TIERS.find(t => myCount < t.count);
     const prevTierCount = ((_a = [...TIERS].reverse().find(t => myCount >= t.count)) === null || _a === void 0 ? void 0 : _a.count) || 0;
     const tierProgressPct = nextTier ? Math.min(100, Math.round(((myCount - prevTierCount) / (nextTier.count - prevTierCount)) * 100)) : 100;
@@ -248,6 +253,21 @@ function App() {
         setLocGeoStatus("done");
         showToast("Location coordinates captured.");
     };
+    const mergeInto = (duplicateId) => {
+        const duplicate = locations.find(l => l.id === duplicateId);
+        if (!duplicate || !selected) return;
+        const movedReviews = reviews.map(r => r.locationId === duplicateId ? { ...r, locationId: selected.id } : r);
+        const keptLat = selected.lat || duplicate.lat;
+        const keptLng = selected.lng || duplicate.lng;
+        const nextLocations = locations
+            .filter(l => l.id !== duplicateId)
+            .map(l => l.id === selected.id ? { ...l, lat: keptLat, lng: keptLng } : l);
+        persist({ locations: nextLocations, reviews: movedReviews });
+        setMergeMode(false);
+        setMergeQuery("");
+        showToast(`Merged "${duplicate.name}" into this stop.`);
+    };
+
     const submitLocation = () => {
         if (!newLoc.name.trim())
             return showToast("Give it a name first.");
@@ -290,7 +310,6 @@ function App() {
             lumperFee: newRev.lumperUsed === "yes" && newRev.lumperFee ? Number(newRev.lumperFee) : null,
             lumperPaidBy: newRev.lumperUsed === "yes" ? newRev.lumperPaidBy : null,
             detentionOwed: newRev.detentionOwed,
-            detentionPaid: newRev.detentionOwed === "yes" ? newRev.detentionPaid : null,
             overnightParking: newRev.overnightParking, dockEase: Number(newRev.dockEase),
             amenities: newRev.amenities, notes: newRev.notes, initials: newRev.initials || "Anon",
             gpsStatus: (newRev.gpsStatus === "verified" || newRev.gpsStatus === "mismatch") ? newRev.gpsStatus : "not_checked",
@@ -403,7 +422,7 @@ function App() {
                 React.createElement(StatBox, { label: "Avg check-in wait", value: selectedStats.checkInWait !== null ? `${Math.round(selectedStats.checkInWait)} min` : "—", emoji: "\u23F1" }),
                 React.createElement(StatBox, { label: "Avg load/unload", value: selectedStats.dockTime !== null ? `${Math.round(selectedStats.dockTime)} min` : "—", emoji: "\uD83D\uDE9A" }),
                 React.createElement(StatBox, { label: "Appointments kept", value: selectedStats.apptKeptPct !== null ? `${selectedStats.apptKeptPct}%` : "—", emoji: "\uD83D\uDCC5" }),
-                React.createElement(StatBox, { label: "Pays detention owed", value: selectedStats.detReliablePct !== null ? `${selectedStats.detReliablePct}%` : "—", emoji: "\u2705" }),
+                React.createElement(StatBox, { label: "Detained past free time", value: selectedStats.detentionFreqPct !== null ? `${selectedStats.detentionFreqPct}% of visits` : "—", emoji: "\u26A0\uFE0F" }),
                 React.createElement(StatBox, { label: "Avg lumper fee", value: selectedStats.lumper !== null ? `$${Math.round(selectedStats.lumper)}` : "—", emoji: "\uD83D\uDCB5" }),
                 React.createElement(StatBox, { label: "Overnight parking", value: selectedStats.parkingYes !== null ? `${selectedStats.parkingYes}% say yes` : "—", emoji: "\uD83D\uDCCD" })),
             (selectedStats.pickup.count > 0 || selectedStats.delivery.count > 0) && (React.createElement("div", { style: { background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: 12, marginBottom: 14 } },
@@ -431,6 +450,16 @@ function App() {
                     count,
                     ")")))))),
             React.createElement("button", { onClick: () => setView("addReview"), style: submitBtnStyle }, "+ Leave a review"),
+            React.createElement("button", { onClick: () => setMergeMode(!mergeMode), style: { width: "100%", background: "transparent", border: "1px solid #3A4147", color: "#9AA0A6", borderRadius: 6, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginTop: 8 } }, mergeMode ? "Cancel" : "This is a duplicate — merge it with another stop"),
+            mergeMode && React.createElement("div", { style: { background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: 12, marginTop: 8 } },
+                React.createElement("div", { style: { fontSize: 12, color: "#9AA0A6", marginBottom: 8 } }, "Find the other entry for this same stop, then merge its reviews into this one. The other entry gets deleted."),
+                React.createElement("input", { value: mergeQuery, onChange: e => setMergeQuery(e.target.value), placeholder: "Search by name...", style: { ...inputStyle, marginBottom: 8 } }),
+                locations
+                    .filter(l => l.id !== selected.id && TYPE_META[l.type] && mergeQuery.trim().length > 0 && l.name.toLowerCase().includes(mergeQuery.trim().toLowerCase()))
+                    .map(l => (React.createElement("div", { key: l.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid #2A2F34" } },
+                        React.createElement("span", { style: { fontSize: 13 } }, l.name, " ", React.createElement("span", { style: { color: "#6B7278", fontSize: 11 } }, `(${locationStats(l.id).count} reviews)`)),
+                        React.createElement("button", { onClick: () => mergeInto(l.id), style: { background: "#FBC02D", color: "#14171A", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "Merge in")))
+                    )),
             React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#9AA0A6", margin: "20px 0 10px", textTransform: "uppercase" } },
                 selectedStats.count,
                 " Review",
@@ -463,7 +492,7 @@ function App() {
                         " lumper (",
                         r.lumperPaidBy,
                         ")"),
-                    r.detentionOwed === "yes" && React.createElement("span", null, r.detentionPaid === "yes" ? "👍 Paid detention owed" : "👎 Didn't pay detention owed"),
+                    r.detentionOwed === "yes" && React.createElement("span", null, "⚠️ Waited past free time"),
                     r.overnightParking !== "unknown" && React.createElement("span", null,
                         "Overnight parking: ",
                         r.overnightParking),
@@ -479,7 +508,11 @@ function App() {
         view === "addLocation" && (React.createElement("div", { style: { padding: "16px 20px" } },
             React.createElement("div", { style: { fontWeight: 800, fontSize: 18, marginBottom: 16 } }, "Add a stop"),
             React.createElement(Field, { label: "Name" },
-                React.createElement("input", { value: newLoc.name, onChange: e => setNewLoc({ ...newLoc, name: e.target.value }), placeholder: "e.g. Acme Distribution Center", style: inputStyle })),
+                React.createElement("input", { value: newLoc.name, onChange: e => setNewLoc({ ...newLoc, name: e.target.value }), placeholder: "e.g. Acme Distribution Center", style: inputStyle }),
+                possibleDuplicates.length > 0 && React.createElement("div", { style: { background: "#3A3520", border: "1px solid #8A6A16", borderRadius: 6, padding: 10, marginTop: 8 } },
+                    React.createElement("div", { style: { fontSize: 12, color: "#E8C766", fontWeight: 700, marginBottom: 6 } }, "Already on the map — is this one of these?"),
+                    possibleDuplicates.map(l => (React.createElement("button", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); setNewLoc({ name: "", type: "shipper", address: "", corridor: "", notes: "", lat: null, lng: null }); }, style: { display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#F2F0E9", fontSize: 13, padding: "4px 0", cursor: "pointer" } }, `→ ${l.name}${l.corridor ? " (" + l.corridor + ")" : ""}`))),
+                    React.createElement("div", { style: { fontSize: 11, color: "#9AA0A6", marginTop: 4 } }, "If it's not the same place, ignore this and keep filling out the form below."))),
             React.createElement(Field, { label: "Type" },
                 React.createElement("div", { style: { display: "flex", gap: 8 } }, Object.entries(TYPE_META).map(([key, meta]) => (React.createElement("button", { key: key, onClick: () => setNewLoc({ ...newLoc, type: key }), style: {
                         flex: 1, padding: "10px", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer",
@@ -523,10 +556,8 @@ function App() {
                     React.createElement("input", { type: "number", value: newRev.lumperFee, onChange: e => setNewRev({ ...newRev, lumperFee: e.target.value }), placeholder: "e.g. 150", style: inputStyle })),
                 React.createElement(Field, { label: "Who paid it?" },
                     React.createElement(ChipRow, { options: ["driver", "carrier", "prepaid/reefer fee"], value: newRev.lumperPaidBy, onChange: v => setNewRev({ ...newRev, lumperPaidBy: v }) }))),
-            React.createElement(Field, { label: "Were you owed detention pay (waited past free time)?" },
+            React.createElement(Field, { label: "Did you wait past free time (2 hrs is standard)?" },
                 React.createElement(ChipRow, { options: ["yes", "no"], value: newRev.detentionOwed, onChange: v => setNewRev({ ...newRev, detentionOwed: v }) })),
-            newRev.detentionOwed === "yes" && React.createElement(Field, { label: "Did they pay it?" },
-                React.createElement(ChipRow, { options: ["yes", "no"], value: newRev.detentionPaid, onChange: v => setNewRev({ ...newRev, detentionPaid: v }), colorMap: { yes: "#4FA36B", no: "#D9694F" } })),
             React.createElement(Field, { label: "Overnight parking on site?" },
                 React.createElement(ChipRow, { options: ["yes", "no", "limited"], value: newRev.overnightParking, onChange: v => setNewRev({ ...newRev, overnightParking: v }) })),
             React.createElement(Field, { label: `Dock ease: ${newRev.dockEase}/5` },
