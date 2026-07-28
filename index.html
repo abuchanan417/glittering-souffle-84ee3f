@@ -21,39 +21,64 @@
 
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 "use strict";
 /* global React, ReactDOM */
 const { useState, useEffect, useCallback } = React;
 /* ---------- STORAGE LAYER -----------------------------------------------
-   This build uses localStorage: data is per-browser, per-device, NOT
-   shared between drivers. That's fine for solo testing on your own phone.
-
-   TO GO LIVE WITH REAL SHARED DATA ACROSS DRIVERS:
-   Swap the two functions below (loadShared / saveShared) for calls to a
-   free Supabase project (supabase.com — free tier, 2 minute signup).
-   Once you have a project URL + anon key, this is a small, contained edit.
+   Real shared backend: Supabase. Every driver who opens this site reads
+   and writes to the same database now, not their own browser's storage.
 -------------------------------------------------------------------------- */
-const SHARED_KEY = "milepost_shared_v1";
-const MINE_KEY = "milepost_mine_v1";
-function loadShared() {
-    try {
-        const raw = localStorage.getItem(SHARED_KEY);
-        return raw ? JSON.parse(raw) : { locations: [], reviews: [] };
-    }
-    catch (e) {
-        return { locations: [], reviews: [] };
-    }
+const SUPABASE_URL = "https://eeiklfzpktavymzybefz.supabase.co";
+const SUPABASE_KEY = "sb_publishable_HdWE14Y9U4pdMpvFYN_07Q_2hdc1f4R";
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+async function loadAllData() {
+  const [locRes, revRes] = await Promise.all([
+    db.from("locations").select("*"),
+    db.from("reviews").select("*"),
+  ]);
+  if (locRes.error || revRes.error) {
+    return { locations: [], reviews: [], error: (locRes.error || revRes.error).message };
+  }
+  const locations = (locRes.data || []).map((row) => ({ id: row.id, ...row.data }));
+  const reviews = (revRes.data || []).map((row) => ({ id: row.id, locationId: row.location_id, ...row.data }));
+  return { locations, reviews, error: null };
 }
-function saveShared(data) {
-    try {
-        localStorage.setItem(SHARED_KEY, JSON.stringify(data));
-        return true;
-    }
-    catch (e) {
-        return false;
-    }
+
+async function insertLocation(loc) {
+  const { id, ...rest } = loc;
+  const { error } = await db.from("locations").insert({ id, data: rest });
+  return !error;
 }
+
+async function insertReview(rev) {
+  const { id, locationId, ...rest } = rev;
+  const { error } = await db.from("reviews").insert({ id, location_id: locationId, data: rest });
+  return !error;
+}
+
+async function reassignReviews(fromLocationId, toLocationId) {
+  const { error } = await db.from("reviews").update({ location_id: toLocationId }).eq("location_id", fromLocationId);
+  return !error;
+}
+
+async function patchLocationData(id, partial) {
+  const { data: row, error: fetchErr } = await db.from("locations").select("data").eq("id", id).single();
+  if (fetchErr) return false;
+  const merged = { ...row.data, ...partial };
+  const { error } = await db.from("locations").update({ data: merged }).eq("id", id);
+  return !error;
+}
+
+async function deleteLocationRow(id) {
+  const { error } = await db.from("locations").delete().eq("id", id);
+  return !error;
+}
+
+// Personal contribution counter stays on-device — it's not shared data, just a nicety.
+const MINE_KEY = "docktruth_mine_v1";
 function loadMine() {
     try {
         const raw = localStorage.getItem(MINE_KEY);
@@ -196,6 +221,8 @@ const emptyReview = {
 function App() {
     var _a;
     const [data, setData] = useState({ locations: [], reviews: [] });
+    const [loading, setLoading] = useState(true);
+    const [saveError, setSaveError] = useState(null);
     const [myCount, setMyCount] = useState(0);
     const [filterType, setFilterType] = useState("all");
     const [query, setQuery] = useState("");
@@ -212,9 +239,16 @@ function App() {
     const [newLoc, setNewLoc] = useState({ name: "", type: "shipper", address: "", corridor: "", notes: "", lat: null, lng: null });
     const [locGeoStatus, setLocGeoStatus] = useState("idle");
     const [newRev, setNewRev] = useState(emptyReview);
-    useEffect(() => { setData(loadShared()); setMyCount(loadMine()); }, []);
+    useEffect(() => {
+        (async () => {
+            const result = await loadAllData();
+            if (result.error) setSaveError(`Couldn't load data: ${result.error}`);
+            setData({ locations: result.locations, reviews: result.reviews });
+            setMyCount(loadMine());
+            setLoading(false);
+        })();
+    }, []);
     const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2600); };
-    const persist = (next) => { setData(next); saveShared(next); };
     const { locations, reviews } = data;
     const locationStats = (locId) => {
         const revs = reviews.filter(r => r.locationId === locId).sort((a, b) => b.createdAt - a.createdAt);
@@ -317,6 +351,28 @@ function App() {
     const nextTier = TIERS.find(t => myCount < t.count);
     const prevTierCount = ((_a = [...TIERS].reverse().find(t => myCount >= t.count)) === null || _a === void 0 ? void 0 : _a.count) || 0;
     const tierProgressPct = nextTier ? Math.min(100, Math.round(((myCount - prevTierCount) / (nextTier.count - prevTierCount)) * 100)) : 100;
+    const [locationCheckStatus, setLocationCheckStatus] = useState("idle");
+    const [locationMatch, setLocationMatch] = useState(null);
+
+    const checkAmIHere = async () => {
+        setLocationCheckStatus("checking");
+        setLocationMatch(null);
+        const r = await getGeo();
+        if (r.error) { setLocationCheckStatus("idle"); showToast(r.error); return; }
+        const candidates = locations
+            .filter(l => TYPE_META[l.type] && l.lat && l.lng)
+            .map(l => ({ location: l, distanceM: distanceMeters(r.lat, r.lng, l.lat, l.lng) }))
+            .sort((a, b) => a.distanceM - b.distanceM);
+        const closest = candidates[0];
+        if (closest && closest.distanceM <= 300) {
+            setLocationMatch(closest);
+        } else {
+            setLocationMatch("none");
+            setNewLoc(prev => ({ ...prev, lat: r.lat, lng: r.lng }));
+        }
+        setLocationCheckStatus("done");
+    };
+
     const toggleNearMe = async () => {
         if (nearMe) { setNearMe(false); return; }
         setNearMeStatus("checking");
@@ -339,27 +395,34 @@ function App() {
         setLocGeoStatus("done");
         showToast("Location coordinates captured.");
     };
-    const mergeInto = (duplicateId) => {
+    const mergeInto = async (duplicateId) => {
         const duplicate = locations.find(l => l.id === duplicateId);
         if (!duplicate || !selected) return;
-        const movedReviews = reviews.map(r => r.locationId === duplicateId ? { ...r, locationId: selected.id } : r);
         const keptLat = selected.lat || duplicate.lat;
         const keptLng = selected.lng || duplicate.lng;
+        const ok1 = await reassignReviews(duplicateId, selected.id);
+        const ok2 = await patchLocationData(selected.id, { lat: keptLat, lng: keptLng });
+        const ok3 = await deleteLocationRow(duplicateId);
+        if (!ok1 || !ok2 || !ok3) { setSaveError("Merge didn't fully complete — refresh and check before trying again."); return; }
+        setSaveError(null);
+        const movedReviews = reviews.map(r => r.locationId === duplicateId ? { ...r, locationId: selected.id } : r);
         const nextLocations = locations
             .filter(l => l.id !== duplicateId)
             .map(l => l.id === selected.id ? { ...l, lat: keptLat, lng: keptLng } : l);
-        persist({ locations: nextLocations, reviews: movedReviews });
+        setData({ locations: nextLocations, reviews: movedReviews });
         setMergeMode(false);
         setMergeQuery("");
         showToast(`Merged "${duplicate.name}" into this stop.`);
     };
 
-    const submitLocation = () => {
+    const submitLocation = async () => {
         if (!newLoc.name.trim())
             return showToast("Give it a name first.");
         const loc = { id: uid(), ...newLoc, createdAt: Date.now() };
-        const next = { locations: [...locations, loc], reviews };
-        persist(next);
+        const ok = await insertLocation(loc);
+        if (!ok) { setSaveError("Couldn't save this stop — check your connection and try again."); return; }
+        setSaveError(null);
+        setData({ locations: [...locations, loc], reviews });
         setNewLoc({ name: "", type: "shipper", address: "", corridor: "", notes: "", lat: null, lng: null });
         setLocGeoStatus("idle");
         setSelectedId(loc.id);
@@ -385,7 +448,7 @@ function App() {
             showToast("Location captured (this stop has no saved coordinates to check against yet).");
         }
     };
-    const submitReview = () => {
+    const submitReview = async () => {
         const rev = {
             id: uid(), locationId: selectedId, direction: newRev.direction, equipment: newRev.equipment,
             scheduling: newRev.scheduling, apptKept: newRev.scheduling === "appointment" ? newRev.apptKept : null,
@@ -401,8 +464,10 @@ function App() {
             gpsStatus: (newRev.gpsStatus === "verified" || newRev.gpsStatus === "mismatch") ? newRev.gpsStatus : "not_checked",
             createdAt: Date.now(),
         };
-        const next = { locations, reviews: [...reviews, rev] };
-        persist(next);
+        const ok = await insertReview(rev);
+        if (!ok) { setSaveError("Couldn't save this review — check your connection and try again."); return; }
+        setSaveError(null);
+        setData({ locations, reviews: [...reviews, rev] });
         setNewRev(emptyReview);
         setView("detail");
         const newCount = myCount + 1;
@@ -411,6 +476,9 @@ function App() {
         const justHit = TIERS.find(t => t.count === newCount);
         showToast(justHit ? `Milestone hit: ${justHit.reward}` : "Review posted. Thanks for the intel.");
     };
+    if (loading) {
+        return React.createElement("div", { style: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#ACB3B9", fontSize: 14 } }, "Loading DockTruth...");
+    }
     return (React.createElement("div", { style: { minHeight: "100vh", paddingBottom: 40 } },
         React.createElement("div", { style: { padding: "24px 20px 16px", borderBottom: "1px solid #343B42" } },
             React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, marginBottom: 14, flexWrap: "wrap" } },
@@ -421,6 +489,8 @@ function App() {
                                 React.createElement("span", { style: { fontSize: 20 } }, "\uD83D\uDE9A"),
                                 React.createElement("span", { style: { fontWeight: 800, fontSize: 22, letterSpacing: 1.5 } }, "DOCKTRUTH")))),
                     React.createElement("span", { style: { fontSize: 12, color: "#ACB3B9" } }, "What really happened at the dock — from the drivers who were there")),
+            saveError && React.createElement("div", { style: { background: "#3A1F1F", border: "1px solid #7A2E28", borderRadius: 6, padding: "8px 12px", fontSize: 13, marginBottom: 12, display: "flex", gap: 8, alignItems: "center" } },
+                "⚠️ ", saveError),
                 view !== "list" && React.createElement("button", { onClick: () => setView("list"), style: { display: "flex", alignItems: "center", gap: 6, background: "#262B30", border: "1px solid #454E57", borderRadius: 6, padding: "8px 12px", color: "#F5F3ED", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 } }, "\u2302 Home")),
             view === "list" && React.createElement(React.Fragment, null,
                 React.createElement("div", { style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: "12px 14px", marginBottom: 14 } },
@@ -442,6 +512,22 @@ function App() {
                         color: filterType === t ? chipColor : "#ACB3B9", cursor: "pointer"
                     } }, t === "all" ? "All" : TYPE_META[t].label + "s");
                 })),
+                React.createElement("button", { onClick: checkAmIHere, style: {
+                    width: "100%", background: "#1B5E3A", border: "2px solid #4FA36B", borderRadius: 6, padding: "12px",
+                    color: "#F5F3ED", fontSize: 14, fontWeight: 700, cursor: "pointer", marginBottom: 12,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                } }, "\uD83D\uDCCD ", locationCheckStatus === "checking" ? "Checking your location..." : "Am I at a saved stop?"),
+                locationMatch && locationMatch !== "none" && React.createElement("div", { style: { background: "#1B5E3A", border: "2px solid #F5F3ED", borderRadius: 8, padding: 14, marginBottom: 12 } },
+                    React.createElement("div", { style: { fontSize: 13, color: "#F5F3ED", marginBottom: 10 } },
+                        `Looks like you're about ${Math.round(locationMatch.distanceM)}m from `,
+                        React.createElement("strong", null, locationMatch.location.name),
+                        " — is that where you are?"),
+                    React.createElement("div", { style: { display: "flex", gap: 8 } },
+                        React.createElement("button", { onClick: () => { setSelectedId(locationMatch.location.id); setView("detail"); setLocationMatch(null); }, style: { flex: 1, background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "10px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "Yes, that's me"),
+                        React.createElement("button", { onClick: () => setLocationMatch("none"), style: { flex: 1, background: "transparent", color: "#F5F3ED", border: "1px solid #F5F3ED", borderRadius: 6, padding: "10px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "No, different stop"))),
+                locationMatch === "none" && React.createElement("div", { style: { background: "#262B30", border: "1px solid #454E57", borderRadius: 8, padding: 14, marginBottom: 12 } },
+                    React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9", marginBottom: 10 } }, `No matching saved stop nearby. Want to add this one as new? ${newLoc.lat ? "Your GPS is already captured for it." : ""}`),
+                    React.createElement("button", { onClick: () => { setView("addLocation"); setLocationMatch(null); }, style: { width: "100%", background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "10px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "Add this stop")),
                 React.createElement("div", { style: { display: "flex", gap: 10 } },
                     React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", background: "#262B30", border: "1px solid #454E57", borderRadius: 6, padding: "8px 12px" } },
                         "\uD83D\uDD0D",
