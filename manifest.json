@@ -1,0 +1,13 @@
+{
+  "name": "DockTruth",
+  "short_name": "DockTruth",
+  "description": "What really happened at the dock — from the drivers who were there.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1C2024",
+  "theme_color": "#1B5E3A",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

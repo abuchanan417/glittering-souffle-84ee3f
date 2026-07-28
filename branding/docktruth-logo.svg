@@ -1,0 +1,22 @@
+<svg width="640" height="160" viewBox="0 0 640 160" xmlns="http://www.w3.org/2000/svg">
+  <!-- Icon badge -->
+  <g transform="translate(8,8)">
+    <rect x="0" y="0" width="144" height="144" rx="20" fill="#1B5E3A" stroke="#F2F0E9" stroke-width="7"/>
+    <g fill="#F2F0E9">
+      <rect x="26" y="52" width="56" height="35" rx="3"/>
+      <path d="M82 61 h19 l14 15 v12 h-33 z"/>
+      <path d="M87 66 h10 l8 8 h-18 z" fill="#1B5E3A"/>
+      <circle cx="46" cy="92" r="9" fill="#14171A"/>
+      <circle cx="46" cy="92" r="4" fill="#F2F0E9"/>
+      <circle cx="99" cy="92" r="9" fill="#14171A"/>
+      <circle cx="99" cy="92" r="4" fill="#F2F0E9"/>
+    </g>
+    <circle cx="111" cy="111" r="19" fill="#FBC02D" stroke="#1B5E3A" stroke-width="3"/>
+    <path d="M102 112 l6 6 l12 -14" fill="none" stroke="#14171A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="180" y="90" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="56" letter-spacing="1" fill="#F2F0E9">DOCKTRUTH</text>
+  <!-- Tagline -->
+  <text x="182" y="118" font-family="Arial, Helvetica, sans-serif" font-weight="500" font-size="18" letter-spacing="0.3" fill="#9AA0A6">What really happened at the dock</text>
+</svg>

@@ -8,6 +8,8 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
 <link rel="icon" type="image/png" href="favicon.png" />
 <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#1B5E3A" />
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; background: #1C2024; font-family: system-ui, -apple-system, sans-serif; color: #F5F3ED; }
@@ -43,7 +45,7 @@ async function loadAllData() {
     return { locations: [], reviews: [], error: (locRes.error || revRes.error).message };
   }
   const locations = (locRes.data || []).map((row) => ({ id: row.id, ...row.data }));
-  const reviews = (revRes.data || []).map((row) => ({ id: row.id, locationId: row.location_id, ...row.data }));
+  const reviews = (revRes.data || []).map((row) => ({ id: row.id, locationId: row.location_id, userId: row.user_id, ...row.data }));
   return { locations, reviews, error: null };
 }
 
@@ -54,8 +56,8 @@ async function insertLocation(loc) {
 }
 
 async function insertReview(rev) {
-  const { id, locationId, ...rest } = rev;
-  const { error } = await db.from("reviews").insert({ id, location_id: locationId, data: rest });
+  const { id, locationId, userId, ...rest } = rev;
+  const { error } = await db.from("reviews").insert({ id, location_id: locationId, user_id: userId || null, data: rest });
   return !error;
 }
 
@@ -222,6 +224,10 @@ function App() {
     var _a;
     const [data, setData] = useState({ locations: [], reviews: [] });
     const [loading, setLoading] = useState(true);
+    const [session, setSession] = useState(null);
+    const [authEmail, setAuthEmail] = useState("");
+    const [authStatus, setAuthStatus] = useState("idle"); // idle | sending | sent | error
+    const [showAuthBox, setShowAuthBox] = useState(false);
     const [saveError, setSaveError] = useState(null);
     const [myCount, setMyCount] = useState(0);
     const [filterType, setFilterType] = useState("all");
@@ -247,7 +253,23 @@ function App() {
             setMyCount(loadMine());
             setLoading(false);
         })();
+        db.auth.getSession().then(({ data }) => setSession(data.session));
+        const { data: authListener } = db.auth.onAuthStateChange((_event, newSession) => {
+            setSession(newSession);
+            if (newSession) { setShowAuthBox(false); setAuthStatus("idle"); }
+        });
+        return () => authListener.subscription.unsubscribe();
     }, []);
+
+    const sendMagicLink = async () => {
+        if (!authEmail.trim() || !authEmail.includes("@")) { showToast("Enter a real email address."); return; }
+        setAuthStatus("sending");
+        const { error } = await db.auth.signInWithOtp({ email: authEmail.trim(), options: { emailRedirectTo: window.location.href } });
+        setAuthStatus(error ? "error" : "sent");
+        if (error) showToast(error.message);
+    };
+    const signOut = async () => { await db.auth.signOut(); setShowAuthBox(false); showToast("Signed out."); };
+
     const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2600); };
     const { locations, reviews } = data;
     const locationStats = (locId) => {
@@ -416,6 +438,7 @@ function App() {
     };
 
     const submitLocation = async () => {
+        if (!session) { setShowAuthBox(true); return showToast("Sign in first — box is at the top of the screen."); }
         if (!newLoc.name.trim())
             return showToast("Give it a name first.");
         const loc = { id: uid(), ...newLoc, createdAt: Date.now() };
@@ -449,6 +472,7 @@ function App() {
         }
     };
     const submitReview = async () => {
+        if (!session) { setShowAuthBox(true); return showToast("Sign in first — box is at the top of the screen."); }
         const rev = {
             id: uid(), locationId: selectedId, direction: newRev.direction, equipment: newRev.equipment,
             scheduling: newRev.scheduling, apptKept: newRev.scheduling === "appointment" ? newRev.apptKept : null,
@@ -462,6 +486,7 @@ function App() {
             overnightParking: newRev.overnightParking, dockEase: Number(newRev.dockEase), courtesy: Number(newRev.courtesy),
             amenities: newRev.amenities, notes: newRev.notes, initials: newRev.initials || "Anon",
             gpsStatus: (newRev.gpsStatus === "verified" || newRev.gpsStatus === "mismatch") ? newRev.gpsStatus : "not_checked",
+            userId: session ? session.user.id : null,
             createdAt: Date.now(),
         };
         const ok = await insertReview(rev);
@@ -489,6 +514,19 @@ function App() {
                                 React.createElement("span", { style: { fontSize: 20 } }, "\uD83D\uDE9A"),
                                 React.createElement("span", { style: { fontWeight: 800, fontSize: 22, letterSpacing: 1.5 } }, "DOCKTRUTH")))),
                     React.createElement("span", { style: { fontSize: 12, color: "#ACB3B9" } }, "What really happened at the dock — from the drivers who were there")),
+                session
+                    ? React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexShrink: 0 } },
+                        React.createElement("span", { style: { fontSize: 12, color: "#4FA36B" } }, `✓ ${session.user.email}`),
+                        React.createElement("button", { onClick: signOut, style: { background: "transparent", border: "1px solid #454E57", color: "#ACB3B9", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "Sign out"))
+                    : React.createElement("button", { onClick: () => setShowAuthBox(!showAuthBox), style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 } }, "Sign in to contribute"),
+            showAuthBox && !session && React.createElement("div", { style: { background: "#262B30", border: "1px solid #454E57", borderRadius: 8, padding: 12, marginBottom: 12 } },
+                authStatus === "sent"
+                    ? React.createElement("div", { style: { fontSize: 13, color: "#4FA36B" } }, `Check ${authEmail} for a sign-in link.`)
+                    : React.createElement(React.Fragment, null,
+                        React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "No password needed — just get a one-tap link sent to your email."),
+                        React.createElement("div", { style: { display: "flex", gap: 8 } },
+                            React.createElement("input", { value: authEmail, onChange: e => setAuthEmail(e.target.value), placeholder: "you@example.com", style: { ...inputStyle, flex: 1 } }),
+                            React.createElement("button", { onClick: sendMagicLink, style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, authStatus === "sending" ? "Sending..." : "Send link")))),
             saveError && React.createElement("div", { style: { background: "#3A1F1F", border: "1px solid #7A2E28", borderRadius: 6, padding: "8px 12px", fontSize: 13, marginBottom: 12, display: "flex", gap: 8, alignItems: "center" } },
                 "⚠️ ", saveError),
                 view !== "list" && React.createElement("button", { onClick: () => setView("list"), style: { display: "flex", alignItems: "center", gap: 6, background: "#262B30", border: "1px solid #454E57", borderRadius: 6, padding: "8px 12px", color: "#F5F3ED", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 } }, "\u2302 Home")),
