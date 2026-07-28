@@ -228,6 +228,9 @@ function App() {
     const [authEmail, setAuthEmail] = useState("");
     const [authStatus, setAuthStatus] = useState("idle"); // idle | sending | sent | error
     const [showAuthBox, setShowAuthBox] = useState(false);
+    const [authCode, setAuthCode] = useState("");
+    const [authMode, setAuthMode] = useState("code"); // code | password
+    const [authPassword, setAuthPassword] = useState("");
     const [saveError, setSaveError] = useState(null);
     const [myCount, setMyCount] = useState(0);
     const [filterType, setFilterType] = useState("all");
@@ -267,6 +270,20 @@ function App() {
         const { error } = await db.auth.signInWithOtp({ email: authEmail.trim(), options: { emailRedirectTo: window.location.href } });
         setAuthStatus(error ? "error" : "sent");
         if (error) showToast(error.message);
+    };
+    const verifyCode = async () => {
+        if (!authCode.trim()) { showToast("Enter the code from your email."); return; }
+        setAuthStatus("verifying");
+        const { error } = await db.auth.verifyOtp({ email: authEmail.trim(), token: authCode.trim(), type: "email" });
+        if (error) { setAuthStatus("sent"); showToast(error.message); return; }
+        setAuthCode("");
+    };
+    const signInWithPassword = async () => {
+        if (!authEmail.trim() || !authPassword) { showToast("Enter email and password."); return; }
+        setAuthStatus("verifying");
+        const { error } = await db.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword });
+        if (error) { setAuthStatus("idle"); showToast(error.message); return; }
+        setAuthPassword("");
     };
     const signOut = async () => { await db.auth.signOut(); setShowAuthBox(false); showToast("Signed out."); };
 
@@ -520,13 +537,27 @@ function App() {
                         React.createElement("button", { onClick: signOut, style: { background: "transparent", border: "1px solid #454E57", color: "#ACB3B9", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "Sign out"))
                     : React.createElement("button", { onClick: () => setShowAuthBox(!showAuthBox), style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 } }, "Sign in to contribute"),
             showAuthBox && !session && React.createElement("div", { style: { background: "#262B30", border: "1px solid #454E57", borderRadius: 8, padding: 12, marginBottom: 12 } },
-                authStatus === "sent"
-                    ? React.createElement("div", { style: { fontSize: 13, color: "#4FA36B" } }, `Check ${authEmail} for a sign-in link.`)
+                authMode === "password"
+                    ? React.createElement(React.Fragment, null,
+                        React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "Sign in with an email + password account (e.g. one created directly in Supabase for testing)."),
+                        React.createElement("input", { value: authEmail, onChange: e => setAuthEmail(e.target.value), placeholder: "you@example.com", style: { ...inputStyle, marginBottom: 8 } }),
+                        React.createElement("div", { style: { display: "flex", gap: 8 } },
+                            React.createElement("input", { value: authPassword, onChange: e => setAuthPassword(e.target.value), placeholder: "password", type: "password", style: { ...inputStyle, flex: 1 } }),
+                            React.createElement("button", { onClick: signInWithPassword, style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, authStatus === "verifying" ? "Checking..." : "Sign in")),
+                        React.createElement("button", { onClick: () => setAuthMode("code"), style: { background: "transparent", border: "none", color: "#ACB3B9", fontSize: 11, cursor: "pointer", padding: "6px 0 0", textDecoration: "underline" } }, "Back to email code"))
+                    : (authStatus === "sent" || authStatus === "verifying")
+                    ? React.createElement(React.Fragment, null,
+                        React.createElement("div", { style: { fontSize: 13, color: "#4FA36B", marginBottom: 8 } }, `We sent a 6-digit code to ${authEmail}. Enter it below.`),
+                        React.createElement("div", { style: { display: "flex", gap: 8 } },
+                            React.createElement("input", { value: authCode, onChange: e => setAuthCode(e.target.value), placeholder: "123456", inputMode: "numeric", style: { ...inputStyle, flex: 1 } }),
+                            React.createElement("button", { onClick: verifyCode, style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, authStatus === "verifying" ? "Checking..." : "Verify")),
+                        React.createElement("button", { onClick: sendMagicLink, style: { background: "transparent", border: "none", color: "#ACB3B9", fontSize: 11, cursor: "pointer", padding: "6px 0 0", textDecoration: "underline" } }, "Didn't get it? Send a new code"))
                     : React.createElement(React.Fragment, null,
-                        React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "No password needed — just get a one-tap link sent to your email."),
+                        React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "No password needed — we'll email you a 6-digit code."),
                         React.createElement("div", { style: { display: "flex", gap: 8 } },
                             React.createElement("input", { value: authEmail, onChange: e => setAuthEmail(e.target.value), placeholder: "you@example.com", style: { ...inputStyle, flex: 1 } }),
-                            React.createElement("button", { onClick: sendMagicLink, style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, authStatus === "sending" ? "Sending..." : "Send link")))),
+                            React.createElement("button", { onClick: sendMagicLink, style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, authStatus === "sending" ? "Sending..." : "Send code")),
+                        React.createElement("button", { onClick: () => setAuthMode("password"), style: { background: "transparent", border: "none", color: "#6B7278", fontSize: 10, cursor: "pointer", padding: "6px 0 0", textDecoration: "underline" } }, "Have a password account instead?"))),
             saveError && React.createElement("div", { style: { background: "#3A1F1F", border: "1px solid #7A2E28", borderRadius: 6, padding: "8px 12px", fontSize: 13, marginBottom: 12, display: "flex", gap: 8, alignItems: "center" } },
                 "⚠️ ", saveError),
                 view !== "list" && React.createElement("button", { onClick: () => setView("list"), style: { display: "flex", alignItems: "center", gap: 6, background: "#262B30", border: "1px solid #454E57", borderRadius: 6, padding: "8px 12px", color: "#F5F3ED", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 } }, "\u2302 Home")),
