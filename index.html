@@ -79,6 +79,18 @@ async function deleteLocationRow(id) {
   return !error;
 }
 
+async function loadProfile(userId) {
+  const { data: row, error } = await db.from("profiles").select("*").eq("id", userId).maybeSingle();
+  if (error || !row) return null;
+  return { displayName: row.display_name || "", username: row.username || "", ...row.data };
+}
+
+async function saveProfile(userId, profile) {
+  const { displayName, username, ...rest } = profile;
+  const { error } = await db.from("profiles").upsert({ id: userId, display_name: displayName, username: username || null, data: rest });
+  return error ? error.message : null;
+}
+
 // Personal contribution counter stays on-device — it's not shared data, just a nicety.
 const MINE_KEY = "docktruth_mine_v1";
 function loadMine() {
@@ -103,6 +115,7 @@ const TYPE_META = {
 };
 const AMENITIES = ["Restroom", "Food nearby", "Easy backing", "Well lit", "Scale on site"];
 const EQUIPMENT = ["Dry Van", "Reefer", "Flatbed", "Step Deck", "Power Only", "Tanker", "Other"];
+const RUN_TYPES = ["OTR", "Regional", "Local", "Dedicated", "Team/Sleeper"];
 const TIERS = [
     { count: 10, reward: "Founding Contributor badge" },
     { count: 25, reward: "Early access to new features" },
@@ -231,6 +244,9 @@ function App() {
     const [authCode, setAuthCode] = useState("");
     const [authMode, setAuthMode] = useState("code"); // code | password
     const [authPassword, setAuthPassword] = useState("");
+    const [myProfile, setMyProfile] = useState(null);
+    const [profileForm, setProfileForm] = useState({ displayName: "", username: "", yearsDriving: "", equipmentTypes: [], runTypes: [], homeBase: "" });
+    const [profileSaveStatus, setProfileSaveStatus] = useState("idle");
     const [saveError, setSaveError] = useState(null);
     const [myCount, setMyCount] = useState(0);
     const [filterType, setFilterType] = useState("all");
@@ -259,7 +275,15 @@ function App() {
         db.auth.getSession().then(({ data }) => setSession(data.session));
         const { data: authListener } = db.auth.onAuthStateChange((_event, newSession) => {
             setSession(newSession);
-            if (newSession) { setShowAuthBox(false); setAuthStatus("idle"); }
+            if (newSession) {
+                setShowAuthBox(false);
+                setAuthStatus("idle");
+                loadProfile(newSession.user.id).then((p) => {
+                    if (p) { setMyProfile(p); setProfileForm({ displayName: p.displayName || "", username: p.username || "", yearsDriving: p.yearsDriving || "", equipmentTypes: p.equipmentTypes || [], runTypes: p.runTypes || [], homeBase: p.homeBase || "" }); }
+                });
+            } else {
+                setMyProfile(null);
+            }
         });
         return () => authListener.subscription.unsubscribe();
     }, []);
@@ -284,6 +308,16 @@ function App() {
         const { error } = await db.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword });
         if (error) { setAuthStatus("idle"); showToast(error.message); return; }
         setAuthPassword("");
+    };
+    const submitProfile = async () => {
+        if (!session) return;
+        setProfileSaveStatus("saving");
+        const errMsg = await saveProfile(session.user.id, profileForm);
+        if (errMsg) { setProfileSaveStatus("idle"); showToast(errMsg.includes("duplicate") ? "That username's taken — try another." : errMsg); return; }
+        setMyProfile(profileForm);
+        setProfileSaveStatus("saved");
+        showToast("Profile saved.");
+        setView("list");
     };
     const signOut = async () => { await db.auth.signOut(); setShowAuthBox(false); showToast("Signed out."); };
 
@@ -533,7 +567,8 @@ function App() {
                     React.createElement("span", { style: { fontSize: 12, color: "#ACB3B9" } }, "What really happened at the dock — from the drivers who were there")),
                 session
                     ? React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexShrink: 0 } },
-                        React.createElement("span", { style: { fontSize: 12, color: "#4FA36B" } }, `✓ ${session.user.email}`),
+                        React.createElement("span", { style: { fontSize: 12, color: "#4FA36B" } }, `✓ ${myProfile && myProfile.username ? myProfile.username : session.user.email}`),
+                        React.createElement("button", { onClick: () => setView("profile"), style: { background: "transparent", border: "1px solid #454E57", color: "#ACB3B9", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "My profile"),
                         React.createElement("button", { onClick: signOut, style: { background: "transparent", border: "1px solid #454E57", color: "#ACB3B9", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "Sign out"))
                     : React.createElement("button", { onClick: () => setShowAuthBox(!showAuthBox), style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 } }, "Sign in to contribute"),
             showAuthBox && !session && React.createElement("div", { style: { background: "#262B30", border: "1px solid #454E57", borderRadius: 8, padding: 12, marginBottom: 12 } },
@@ -553,6 +588,7 @@ function App() {
                             React.createElement("button", { onClick: verifyCode, style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, authStatus === "verifying" ? "Checking..." : "Verify")),
                         React.createElement("button", { onClick: sendMagicLink, style: { background: "transparent", border: "none", color: "#ACB3B9", fontSize: 11, cursor: "pointer", padding: "6px 0 0", textDecoration: "underline" } }, "Didn't get it? Send a new code"))
                     : React.createElement(React.Fragment, null,
+                        React.createElement("div", { style: { fontSize: 12, color: "#4FA36B", fontWeight: 700, marginBottom: 6 } }, "Real drivers. Real data. No corporate spin."),
                         React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "No password needed — we'll email you a 6-digit code."),
                         React.createElement("div", { style: { display: "flex", gap: 8 } },
                             React.createElement("input", { value: authEmail, onChange: e => setAuthEmail(e.target.value), placeholder: "you@example.com", style: { ...inputStyle, flex: 1 } }),
@@ -626,7 +662,7 @@ function App() {
                     React.createElement("div", { style: { fontSize: 13 } }, "Try a wider radius, or turn off \"Near me\" to see everything.")
                 ) : React.createElement(React.Fragment, null,
                     React.createElement("div", { style: { fontSize: 15, marginBottom: 6 } }, "No stops here yet."),
-                    React.createElement("div", { style: { fontSize: 13 } }, "Be the first to add one.")
+                    React.createElement("div", { style: { fontSize: 13 } }, "Help the next driver — be the first to log this stop.")
                 ))),
             React.createElement("div", { style: { display: "grid", gap: 12 } }, filtered.map(l => {
                 const meta = TYPE_META[l.type];
@@ -655,7 +691,8 @@ function App() {
                                 l.stats.count !== 1 ? "s" : ""),
                             l.stats.verifiedCount > 0 && React.createElement("span", { style: { color: "#4FA36B" } }, `\u2713 ${l.stats.verifiedCount} verified`))),
                     React.createElement("span", { style: { color: "#4A5157" } }, "\u203A")));
-            })))),
+            }))),
+            React.createElement("div", { style: { textAlign: "center", padding: "20px 0 4px", fontSize: 12, color: "#6B7278" } }, "Drivers helping drivers. That's it.")),
         view === "detail" && selected && selectedStats && (React.createElement("div", { style: { padding: "16px 20px" } },
             React.createElement("div", { style: { display: "flex", gap: 14, alignItems: "center", marginBottom: 8 } },
                 React.createElement(ScoreBadge, { score: selectedStats.score, size: "lg" }),
@@ -663,7 +700,7 @@ function App() {
                     React.createElement("div", { style: { fontSize: 11, color: TYPE_META[selected.type].color, fontWeight: 700, textTransform: "uppercase" } }, TYPE_META[selected.type].label),
                     React.createElement("div", { style: { fontWeight: 800, fontSize: 20 } }, selected.name),
                     React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9" } }, selected.address || selected.corridor),
-                    selected.lat && React.createElement("div", { style: { fontSize: 11, color: "#4FA36B", marginTop: 2 } }, "\u2713 Coordinates on file \u2014 reviews can be GPS-verified here"))),
+                    selected.lat && React.createElement("div", { style: { fontSize: 11, color: "#4FA36B", marginTop: 2 } }, "\u2713 Verified where it matters — reviews here can be GPS-checked"))),
             React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 16 } },
                 confidenceTier(selectedStats.count) && React.createElement("span", { style: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 10, background: `${confidenceTier(selectedStats.count).color}22`, color: confidenceTier(selectedStats.count).color } }, confidenceTier(selectedStats.count).label),
                 React.createElement("span", { style: { fontSize: 12, color: "#ACB3B9" } }, `\u2713 ${selectedStats.verifiedCount} GPS-verified visit${selectedStats.verifiedCount !== 1 ? "s" : ""}`),
@@ -712,8 +749,8 @@ function App() {
                     count,
                     ")")))))),
             React.createElement("div", { style: { display: "flex", gap: 8 } },
-                React.createElement("button", { onClick: () => { setQuickUpdateMode(false); setView("addReview"); }, style: { ...submitBtnStyle, flex: 1 } }, "+ Leave a review"),
-                React.createElement("button", { onClick: () => { setQuickUpdateMode(true); setView("addReview"); }, style: { flex: 1, background: "#262B30", color: "#F5F3ED", border: "1px solid #454E57", borderRadius: 6, padding: "13px", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Quick update")),
+                React.createElement("button", { onClick: () => { setQuickUpdateMode(false); setNewRev(p => ({ ...p, initials: p.initials || (myProfile && (myProfile.username || myProfile.displayName)) || "" })); setView("addReview"); }, style: { ...submitBtnStyle, flex: 1 } }, "+ Leave a review"),
+                React.createElement("button", { onClick: () => { setQuickUpdateMode(true); setNewRev(p => ({ ...p, initials: p.initials || (myProfile && (myProfile.username || myProfile.displayName)) || "" })); setView("addReview"); }, style: { flex: 1, background: "#262B30", color: "#F5F3ED", border: "1px solid #454E57", borderRadius: 6, padding: "13px", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Quick update")),
             React.createElement("button", { onClick: () => setMergeMode(!mergeMode), style: { width: "100%", background: "transparent", border: "1px solid #454E57", color: "#ACB3B9", borderRadius: 6, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginTop: 8 } }, mergeMode ? "Cancel" : "This is a duplicate — merge it with another stop"),
             mergeMode && React.createElement("div", { style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 12, marginTop: 8 } },
                 React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "Find the other entry for this same stop, then merge its reviews into this one. The other entry gets deleted."),
@@ -803,11 +840,27 @@ function App() {
             React.createElement(Field, { label: "Notes (optional)" },
                 React.createElement("textarea", { value: newLoc.notes, onChange: e => setNewLoc({ ...newLoc, notes: e.target.value }), placeholder: "Anything else drivers should know", style: { ...inputStyle, minHeight: 70, resize: "vertical" } })),
             React.createElement("button", { onClick: submitLocation, style: submitBtnStyle }, "Save stop"))),
+        view === "profile" && session && (React.createElement("div", { style: { padding: "16px 20px" } },
+            React.createElement("div", { style: { fontWeight: 800, fontSize: 18, marginBottom: 4 } }, "My profile"),
+            React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9", marginBottom: 16 } }, "Everything here is optional. Fill in what you want other drivers to see."),
+            React.createElement(Field, { label: "Name" },
+                React.createElement("input", { value: profileForm.displayName, onChange: e => setProfileForm({ ...profileForm, displayName: e.target.value }), placeholder: "e.g. John D.", style: inputStyle })),
+            React.createElement(Field, { label: "Username", hint: "Shown on your reviews instead of typing initials every time." },
+                React.createElement("input", { value: profileForm.username, onChange: e => setProfileForm({ ...profileForm, username: e.target.value.replace(/\s/g, "") }), placeholder: "e.g. bigrig_ben", style: inputStyle })),
+            React.createElement(Field, { label: "Years driving" },
+                React.createElement("input", { type: "number", value: profileForm.yearsDriving, onChange: e => setProfileForm({ ...profileForm, yearsDriving: e.target.value }), placeholder: "e.g. 12", style: inputStyle })),
+            React.createElement(Field, { label: "Home base / region" },
+                React.createElement("input", { value: profileForm.homeBase, onChange: e => setProfileForm({ ...profileForm, homeBase: e.target.value }), placeholder: "e.g. Western Kentucky", style: inputStyle })),
+            React.createElement(Field, { label: "Equipment you run" },
+                React.createElement(ChipRow, { options: EQUIPMENT, value: profileForm.equipmentTypes, onChange: v => setProfileForm({ ...profileForm, equipmentTypes: v }), multi: true })),
+            React.createElement(Field, { label: "Type of runs" },
+                React.createElement(ChipRow, { options: RUN_TYPES, value: profileForm.runTypes, onChange: v => setProfileForm({ ...profileForm, runTypes: v }), multi: true })),
+            React.createElement("button", { onClick: submitProfile, style: submitBtnStyle }, profileSaveStatus === "saving" ? "Saving..." : "Save profile"))),
         view === "addReview" && selected && (React.createElement("div", { style: { padding: "16px 20px" } },
             React.createElement("div", { style: { fontWeight: 800, fontSize: 18, marginBottom: 4 } },
                 "Review: ",
                 selected.name),
-            React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9", marginBottom: 16 } }, quickUpdateMode ? "Been here before? Just flag what's changed since last time — skip anything that's still the same." : "Give the next driver the real picture. Takes a minute."),
+            React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9", marginBottom: 16 } }, quickUpdateMode ? "Leave the dock better than you found it." : "One minute today saves someone hours tomorrow."),
             React.createElement(Field, { label: "Were you picking up or delivering?" },
                 React.createElement(ChipRow, { options: ["pickup", "delivery"], value: newRev.direction, onChange: v => setNewRev({ ...newRev, direction: v }), colorMap: { pickup: "#4FA3D1", delivery: "#D96B4F" } })),
             React.createElement(Field, { label: "What were you hauling?" },
@@ -838,7 +891,7 @@ function App() {
                 React.createElement("input", { type: "range", min: 1, max: 5, value: newRev.courtesy, onChange: e => setNewRev({ ...newRev, courtesy: e.target.value }), style: { width: "100%" } })),
             React.createElement(Field, { label: "Amenities" },
                 React.createElement(ChipRow, { options: AMENITIES, value: newRev.amenities, onChange: v => setNewRev({ ...newRev, amenities: v }), multi: true })),
-            React.createElement(Field, { label: "Verify you're actually here", hint: "Optional, but verified reviews carry more weight." },
+            React.createElement(Field, { label: "Verify you're actually here", hint: "Trust, but verify — optional, but verified reviews carry more weight." },
                 React.createElement("button", { onClick: verifyReviewGeo, style: { display: "flex", alignItems: "center", gap: 8, background: "#343B42", border: "1px solid #454E57", borderRadius: 6, padding: "10px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer",
                         color: newRev.gpsStatus === "verified" ? "#4FA36B" : newRev.gpsStatus === "mismatch" ? "#D9694F" : "#F5F3ED" } },
                     "\uD83D\uDCCD ",
