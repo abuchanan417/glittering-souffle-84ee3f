@@ -5,9 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>DockTruth — Keeping Shippers & Receivers Honest</title>
 <meta name="description" content="Real detention, dock, and wait time reports from the drivers who were actually there." />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="icon" type="image/png" href="favicon.png" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; background: #14171A; font-family: system-ui, -apple-system, sans-serif; color: #F2F0E9; }
+  body { margin: 0; background: #1C2024; font-family: system-ui, -apple-system, sans-serif; color: #F5F3ED; }
   input, textarea { font-family: inherit; }
   ::placeholder { color: #6B7278; }
   button { font-family: inherit; }
@@ -71,7 +74,7 @@ const TYPE_META = {
     shipper: { label: "Shipper", emoji: "📦", color: "#4FA3D1" },
     receiver: { label: "Receiver", emoji: "🏭", color: "#D96B4F" },
 };
-const AMENITIES = ["Restroom", "Food nearby", "Showers", "Easy backing", "Well lit"];
+const AMENITIES = ["Restroom", "Food nearby", "Easy backing", "Well lit"];
 const EQUIPMENT = ["Dry Van", "Reefer", "Flatbed", "Step Deck", "Power Only", "Tanker", "Other"];
 const TIERS = [
     { count: 10, reward: "Founding Contributor badge" },
@@ -114,25 +117,25 @@ function ScoreBadge({ score, size }) {
     const dim = size === "lg" ? 72 : 44;
     const fontSize = size === "lg" ? 24 : 15;
     const display = score === null ? "—" : score.toFixed(1);
-    const bg = score === null ? "#3A4147" : score >= 4 ? "#1B5E3A" : score >= 2.5 ? "#8A6A16" : "#7A2E28";
-    return (React.createElement("div", { style: { width: dim, height: dim, background: bg, border: "3px solid #F2F0E9", borderRadius: 10,
+    const bg = score === null ? "#454E57" : score >= 4 ? "#1B5E3A" : score >= 2.5 ? "#8A6A16" : "#7A2E28";
+    return (React.createElement("div", { style: { width: dim, height: dim, background: bg, border: "3px solid #F5F3ED", borderRadius: 10,
             display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 } },
-        React.createElement("span", { style: { fontWeight: 800, fontSize, color: "#F2F0E9", lineHeight: 1 } }, display),
+        React.createElement("span", { style: { fontWeight: 800, fontSize, color: "#F5F3ED", lineHeight: 1 } }, display),
         size === "lg" && React.createElement("span", { style: { fontSize: 9, opacity: .8, letterSpacing: 1, marginTop: 2 } }, "DOCK SCORE")));
 }
 function Sign({ children }) {
-    return React.createElement("div", { style: { background: "#1B5E3A", border: "3px solid #F2F0E9", borderRadius: 4, padding: "10px 18px", display: "inline-block" } }, children);
+    return React.createElement("div", { style: { background: "#1B5E3A", border: "3px solid #F5F3ED", borderRadius: 4, padding: "10px 18px", display: "inline-block" } }, children);
 }
-function StatBox({ label, value, emoji, color = "#9AA0A6" }) {
-    return (React.createElement("div", { style: { background: "#1F2428", border: "1px solid #2A2F34", borderTop: `3px solid ${color}`, borderRadius: 8, padding: 12 } },
+function StatBox({ label, value, emoji, color = "#ACB3B9" }) {
+    return (React.createElement("div", { style: { background: "#262B30", border: "1px solid #343B42", borderTop: `3px solid ${color}`, borderRadius: 8, padding: 12 } },
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 4 } },
             React.createElement("div", { style: { width: 20, height: 20, borderRadius: 5, background: `${color}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11 } }, emoji),
-            React.createElement("span", { style: { fontSize: 11, color: "#9AA0A6", textTransform: "uppercase", letterSpacing: .5 } }, label)),
+            React.createElement("span", { style: { fontSize: 11, color: "#ACB3B9", textTransform: "uppercase", letterSpacing: .5 } }, label)),
         React.createElement("div", { style: { fontSize: 17, fontWeight: 800 } }, value)));
 }
 function Field({ label, children, hint }) {
     return (React.createElement("div", { style: { marginBottom: 16 } },
-        React.createElement("div", { style: { fontSize: 12, color: "#9AA0A6", marginBottom: 6, fontWeight: 600 } }, label),
+        React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 6, fontWeight: 600 } }, label),
         children,
         hint && React.createElement("div", { style: { fontSize: 11, color: "#6B7278", marginTop: 4 } }, hint)));
 }
@@ -144,20 +147,20 @@ function ChipRow({ options, value, onChange, multi, colorMap }) {
         const color = (colorMap && colorMap[opt]) || "#FBC02D";
         return (React.createElement("button", { key: opt, onClick: () => toggle(opt), style: {
                 padding: "8px 14px", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer",
-                border: active ? `2px solid ${color}` : "1px solid #3A4147",
+                border: active ? `2px solid ${color}` : "1px solid #454E57",
                 background: active ? "rgba(255,255,255,.05)" : "transparent",
-                color: active ? color : "#9AA0A6"
+                color: active ? color : "#ACB3B9"
             } }, opt));
     })));
 }
-const inputStyle = { width: "100%", background: "#1F2428", border: "1px solid #3A4147", borderRadius: 6,
-    padding: "10px 12px", color: "#F2F0E9", fontSize: 14, outline: "none", boxSizing: "border-box" };
-const submitBtnStyle = { width: "100%", background: "#FBC02D", color: "#14171A", border: "none", borderRadius: 6,
+const inputStyle = { width: "100%", background: "#262B30", border: "1px solid #454E57", borderRadius: 6,
+    padding: "10px 12px", color: "#F5F3ED", fontSize: 14, outline: "none", boxSizing: "border-box" };
+const submitBtnStyle = { width: "100%", background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6,
     padding: "13px", fontWeight: 700, fontSize: 14, cursor: "pointer", marginTop: 4 };
 const emptyReview = {
     direction: "delivery", equipment: "Dry Van", scheduling: "appointment", apptKept: "yes", apptMissReason: "",
     checkInWait: 0, checkInWaitTouched: false, dockTime: 0, dockTimeTouched: false, lumperUsed: "no", lumperFee: "", lumperPaidBy: "driver",
-    detentionOwed: "no", overnightParking: "unknown", dockEase: 3,
+    detentionOwed: "no", overnightParking: "unknown", dockEase: 3, courtesy: 3,
     amenities: [], notes: "", initials: "", gps: null, gpsStatus: "idle",
 };
 /* ---------- MAIN APP --------------------------------------------------- */
@@ -188,6 +191,7 @@ function App() {
         const checkInWait = avg(revs.map(r => r.checkInWait));
         const dockTime = avg(revs.map(r => r.dockTime));
         const ease = avg(revs.map(r => r.dockEase));
+        const courtesy = avg(revs.map(r => r.courtesy));
         const lumper = avg(revs.filter(r => r.lumperUsed === "yes").map(r => r.lumperFee));
         const detentionFreqPct = pct(revs.filter(r => r.detentionOwed === "yes").length, revs.length);
         const apptRevs = revs.filter(r => r.scheduling === "appointment");
@@ -201,16 +205,17 @@ function App() {
         let score = null;
         if (revs.length) {
             const easeScore = ease !== null ? ease : 3;
+            const courtesyScore = courtesy !== null ? courtesy : 3;
             const dwell = (checkInWait || 0) + (dockTime || 0);
             const waitScore = dwell ? Math.max(0, 5 - dwell / 60) : 3;
             const apptScore = apptKeptPct !== null ? apptKeptPct / 20 : 3;
-            score = Math.min(5, Math.max(0, easeScore * .35 + waitScore * .35 + apptScore * .3));
+            score = Math.min(5, Math.max(0, easeScore * .25 + courtesyScore * .25 + waitScore * .3 + apptScore * .2));
         }
         const byDir = (dir) => {
             const d = revs.filter(r => r.direction === dir);
             return { count: d.length, checkInWait: avg(d.map(r => r.checkInWait)), dockTime: avg(d.map(r => r.dockTime)) };
         };
-        return { count: revs.length, checkInWait, dockTime, ease, lumper, detentionFreqPct, apptKeptPct,
+        return { count: revs.length, checkInWait, dockTime, ease, courtesy, lumper, detentionFreqPct, apptKeptPct,
             parkingYes, equipCounts, verifiedCount, score, revs, pickup: byDir("pickup"), delivery: byDir("delivery") };
     };
     const filtered = locations
@@ -317,7 +322,7 @@ function App() {
             lumperFee: newRev.lumperUsed === "yes" && newRev.lumperFee ? Number(newRev.lumperFee) : null,
             lumperPaidBy: newRev.lumperUsed === "yes" ? newRev.lumperPaidBy : null,
             detentionOwed: newRev.detentionOwed,
-            overnightParking: newRev.overnightParking, dockEase: Number(newRev.dockEase),
+            overnightParking: newRev.overnightParking, dockEase: Number(newRev.dockEase), courtesy: Number(newRev.courtesy),
             amenities: newRev.amenities, notes: newRev.notes, initials: newRev.initials || "Anon",
             gpsStatus: (newRev.gpsStatus === "verified" || newRev.gpsStatus === "mismatch") ? newRev.gpsStatus : "not_checked",
             createdAt: Date.now(),
@@ -333,7 +338,7 @@ function App() {
         showToast(justHit ? `Milestone hit: ${justHit.reward}` : "Review posted. Thanks for the intel.");
     };
     return (React.createElement("div", { style: { minHeight: "100vh", paddingBottom: 40 } },
-        React.createElement("div", { style: { padding: "24px 20px 16px", borderBottom: "1px solid #2A2F34" } },
+        React.createElement("div", { style: { padding: "24px 20px 16px", borderBottom: "1px solid #343B42" } },
             React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, marginBottom: 14, flexWrap: "wrap" } },
                 React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" } },
                     React.createElement("button", { onClick: () => setView("list"), style: { background: "none", border: "none", padding: 0, cursor: "pointer" } },
@@ -341,51 +346,51 @@ function App() {
                             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
                                 React.createElement("span", { style: { fontSize: 20 } }, "\uD83D\uDE9A"),
                                 React.createElement("span", { style: { fontWeight: 800, fontSize: 22, letterSpacing: 1.5 } }, "DOCKTRUTH")))),
-                    React.createElement("span", { style: { fontSize: 12, color: "#9AA0A6" } }, "What really happened at the dock — from the drivers who were there")),
-                view !== "list" && React.createElement("button", { onClick: () => setView("list"), style: { display: "flex", alignItems: "center", gap: 6, background: "#1F2428", border: "1px solid #3A4147", borderRadius: 6, padding: "8px 12px", color: "#F2F0E9", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 } }, "\u2302 Home")),
+                    React.createElement("span", { style: { fontSize: 12, color: "#ACB3B9" } }, "What really happened at the dock — from the drivers who were there")),
+                view !== "list" && React.createElement("button", { onClick: () => setView("list"), style: { display: "flex", alignItems: "center", gap: 6, background: "#262B30", border: "1px solid #454E57", borderRadius: 6, padding: "8px 12px", color: "#F5F3ED", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 } }, "\u2302 Home")),
             view === "list" && React.createElement(React.Fragment, null,
-                React.createElement("div", { style: { background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: "12px 14px", marginBottom: 14 } },
+                React.createElement("div", { style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: "12px 14px", marginBottom: 14 } },
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
                         React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: "#FBC02D" } },
                             myCount,
                             " stop",
                             myCount !== 1 ? "s" : "",
                             " logged"),
-                        React.createElement("span", { style: { fontSize: 11, color: "#9AA0A6" } }, nextTier ? `${nextTier.count - myCount} more to: ${nextTier.reward}` : "All milestones unlocked")),
-                    React.createElement("div", { style: { background: "#14171A", borderRadius: 4, height: 6, overflow: "hidden" } },
+                        React.createElement("span", { style: { fontSize: 11, color: "#ACB3B9" } }, nextTier ? `${nextTier.count - myCount} more to: ${nextTier.reward}` : "All milestones unlocked")),
+                    React.createElement("div", { style: { background: "#1C2024", borderRadius: 4, height: 6, overflow: "hidden" } },
                         React.createElement("div", { style: { background: "#FBC02D", height: "100%", width: tierProgressPct + "%" } }))),
                 React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" } }, ["all", "shipper", "receiver"].map(t => {
                     const chipColor = t === "all" ? "#FBC02D" : TYPE_META[t].color;
                     return React.createElement("button", { key: t, onClick: () => setFilterType(t), style: {
                         fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6,
-                        border: filterType === t ? `2px solid ${chipColor}` : "1px solid #3A4147",
+                        border: filterType === t ? `2px solid ${chipColor}` : "1px solid #454E57",
                         background: filterType === t ? `${chipColor}22` : "transparent",
-                        color: filterType === t ? chipColor : "#9AA0A6", cursor: "pointer"
+                        color: filterType === t ? chipColor : "#ACB3B9", cursor: "pointer"
                     } }, t === "all" ? "All" : TYPE_META[t].label + "s");
                 })),
                 React.createElement("div", { style: { display: "flex", gap: 10 } },
-                    React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", background: "#1F2428", border: "1px solid #3A4147", borderRadius: 6, padding: "8px 12px" } },
+                    React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", background: "#262B30", border: "1px solid #454E57", borderRadius: 6, padding: "8px 12px" } },
                         "\uD83D\uDD0D",
-                        React.createElement("input", { value: query, onChange: e => setQuery(e.target.value), placeholder: "Search by name, city, or corridor", style: { background: "transparent", border: "none", outline: "none", color: "#F2F0E9", marginLeft: 8, flex: 1, fontSize: 14 } })),
-                    React.createElement("button", { onClick: () => setView("addLocation"), style: { background: "#FBC02D", color: "#14171A", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "+ Add stop")),
+                        React.createElement("input", { value: query, onChange: e => setQuery(e.target.value), placeholder: "Search by name, city, or corridor", style: { background: "transparent", border: "none", outline: "none", color: "#F5F3ED", marginLeft: 8, flex: 1, fontSize: 14 } })),
+                    React.createElement("button", { onClick: () => setView("addLocation"), style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "+ Add stop")),
                 React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" } },
                     React.createElement("button", { onClick: toggleNearMe, style: {
                         display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-                        border: nearMe ? "2px solid #FBC02D" : "1px solid #3A4147",
+                        border: nearMe ? "2px solid #FBC02D" : "1px solid #454E57",
                         background: nearMe ? "rgba(251,192,45,.12)" : "transparent",
-                        color: nearMe ? "#FBC02D" : "#9AA0A6",
+                        color: nearMe ? "#FBC02D" : "#ACB3B9",
                     } }, "\uD83D\uDCCD ", nearMeStatus === "checking" ? "Locating..." : nearMe ? `Near me (${radiusMiles}mi)` : "Near me"),
                     nearMe && [25, 50, 100, 250].map(r => (React.createElement("button", { key: r, onClick: () => setRadiusMiles(r), style: {
                         fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 12, cursor: "pointer",
-                        border: radiusMiles === r ? "1px solid #FBC02D" : "1px solid #3A4147",
+                        border: radiusMiles === r ? "1px solid #FBC02D" : "1px solid #454E57",
                         background: radiusMiles === r ? "rgba(251,192,45,.1)" : "transparent",
                         color: radiusMiles === r ? "#FBC02D" : "#6B7278",
                     } }, r + "mi")))),
                 nearMe && noCoordCount > 0 && React.createElement("div", { style: { fontSize: 11, color: "#6B7278", marginTop: 6 } },
                     `${noCoordCount} stop${noCoordCount !== 1 ? "s" : ""} without saved coordinates aren't shown in "near me" — they'll still show up in a text search.`)),
-            view !== "list" && (React.createElement("button", { onClick: () => setView(view === "addReview" ? "detail" : "list"), style: { background: "transparent", border: "none", color: "#9AA0A6", fontSize: 13, cursor: "pointer", padding: 0 } }, "\u2190 Back"))),
+            view !== "list" && (React.createElement("button", { onClick: () => setView(view === "addReview" ? "detail" : "list"), style: { background: "transparent", border: "none", color: "#ACB3B9", fontSize: 13, cursor: "pointer", padding: 0 } }, "\u2190 Back"))),
         view === "list" && (React.createElement("div", { style: { padding: "16px 20px" } },
-            filtered.length === 0 && (React.createElement("div", { style: { textAlign: "center", padding: "60px 20px", color: "#9AA0A6" } },
+            filtered.length === 0 && (React.createElement("div", { style: { textAlign: "center", padding: "60px 20px", color: "#ACB3B9" } },
                 React.createElement("div", { style: { fontSize: 32, marginBottom: 12 } }, "\uD83D\uDCCD"),
                 nearMe ? React.createElement(React.Fragment, null,
                     React.createElement("div", { style: { fontSize: 15, marginBottom: 6 } }, `Nothing within ${radiusMiles} miles.`),
@@ -396,7 +401,7 @@ function App() {
                 ))),
             React.createElement("div", { style: { display: "grid", gap: 12 } }, filtered.map(l => {
                 const meta = TYPE_META[l.type];
-                return (React.createElement("div", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); }, style: { background: "#1F2428", border: "1px solid #2A2F34", borderLeft: `4px solid ${TYPE_META[l.type].color}`, borderRadius: 8, padding: 14, display: "flex", gap: 14, alignItems: "center", cursor: "pointer" } },
+                return (React.createElement("div", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); }, style: { background: "#262B30", border: "1px solid #343B42", borderLeft: `4px solid ${TYPE_META[l.type].color}`, borderRadius: 8, padding: 14, display: "flex", gap: 14, alignItems: "center", cursor: "pointer" } },
                     React.createElement(ScoreBadge, { score: l.stats.score }),
                     React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                         React.createElement("div", { style: { fontSize: 11, color: meta.color, fontWeight: 700, textTransform: "uppercase", marginBottom: 3 } },
@@ -406,7 +411,7 @@ function App() {
                             " ",
                             l.lat && "✓"),
                         React.createElement("div", { style: { fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, l.name),
-                        React.createElement("div", { style: { fontSize: 12, color: "#9AA0A6" } }, l.corridor || l.address || "No location notes yet"),
+                        React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9" } }, l.corridor || l.address || "No location notes yet"),
                         React.createElement("div", { style: { display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#B8BCC0", flexWrap: "wrap" } },
                             l.stats.checkInWait !== null && React.createElement("span", null,
                                 "\u23F1 ",
@@ -427,19 +432,20 @@ function App() {
                 React.createElement("div", null,
                     React.createElement("div", { style: { fontSize: 11, color: TYPE_META[selected.type].color, fontWeight: 700, textTransform: "uppercase" } }, TYPE_META[selected.type].label),
                     React.createElement("div", { style: { fontWeight: 800, fontSize: 20 } }, selected.name),
-                    React.createElement("div", { style: { fontSize: 13, color: "#9AA0A6" } }, selected.address || selected.corridor),
+                    React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9" } }, selected.address || selected.corridor),
                     selected.lat && React.createElement("div", { style: { fontSize: 11, color: "#4FA36B", marginTop: 2 } }, "\u2713 Coordinates on file \u2014 reviews can be GPS-verified here"))),
-            selected.notes && React.createElement("div", { style: { background: "#1F2428", borderRadius: 8, padding: 12, fontSize: 13, color: "#B8BCC0", marginBottom: 16 } }, selected.notes),
+            selected.notes && React.createElement("div", { style: { background: "#262B30", borderRadius: 8, padding: 12, fontSize: 13, color: "#B8BCC0", marginBottom: 16 } }, selected.notes),
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 } },
                 React.createElement(StatBox, { label: "Dock ease", value: selectedStats.ease !== null ? `${selectedStats.ease.toFixed(1)}/5` : "—", emoji: "\uD83D\uDE9A", color: "#4FA36B" }),
+                React.createElement(StatBox, { label: "Courtesy", value: selectedStats.courtesy !== null ? `${selectedStats.courtesy.toFixed(1)}/5` : "—", emoji: "\uD83D\uDC4D", color: "#D98BB0" }),
                 React.createElement(StatBox, { label: "Avg check-in wait", value: selectedStats.checkInWait !== null ? formatHM(selectedStats.checkInWait) : "—", emoji: "\u23F1", color: "#4FA3D1" }),
                 React.createElement(StatBox, { label: "Avg load/unload", value: selectedStats.dockTime !== null ? formatHM(selectedStats.dockTime) : "—", emoji: "\uD83D\uDE9A", color: "#4FA3D1" }),
                 React.createElement(StatBox, { label: "Appointments kept", value: selectedStats.apptKeptPct !== null ? `${selectedStats.apptKeptPct}%` : "—", emoji: "\uD83D\uDCC5", color: "#9B8AE6" }),
                 React.createElement(StatBox, { label: "Detained past free time", value: selectedStats.detentionFreqPct !== null ? `${selectedStats.detentionFreqPct}% of visits` : "—", emoji: "\u26A0\uFE0F", color: "#E0A526" }),
                 React.createElement(StatBox, { label: "Avg lumper fee", value: selectedStats.lumper !== null ? `$${Math.round(selectedStats.lumper)}` : "—", emoji: "\uD83D\uDCB5", color: "#D9B23E" }),
                 React.createElement(StatBox, { label: "Overnight parking", value: selectedStats.parkingYes !== null ? `${selectedStats.parkingYes}% say yes` : "—", emoji: "\uD83D\uDCCD", color: "#3FA9A0" })),
-            (selectedStats.pickup.count > 0 || selectedStats.delivery.count > 0) && (React.createElement("div", { style: { background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: 12, marginBottom: 14 } },
-                React.createElement("div", { style: { fontSize: 11, color: "#9AA0A6", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 } }, "Pickup vs delivery"),
+            (selectedStats.pickup.count > 0 || selectedStats.delivery.count > 0) && (React.createElement("div", { style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 12, marginBottom: 14 } },
+                React.createElement("div", { style: { fontSize: 11, color: "#ACB3B9", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 } }, "Pickup vs delivery"),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 12 } },
                     React.createElement("div", null,
                         React.createElement("div", { style: { color: "#4FA3D1", fontWeight: 700, marginBottom: 4 } },
@@ -456,30 +462,30 @@ function App() {
                         React.createElement("div", { style: { color: "#B8BCC0" } }, selectedStats.delivery.checkInWait !== null ? `${formatHM(selectedStats.delivery.checkInWait)} to dock` : "no data"),
                         React.createElement("div", { style: { color: "#B8BCC0" } }, selectedStats.delivery.dockTime !== null ? `${formatHM(selectedStats.delivery.dockTime)} unloading` : ""))))),
             Object.keys(selectedStats.equipCounts).length > 0 && (React.createElement("div", { style: { marginBottom: 16 } },
-                React.createElement("div", { style: { fontSize: 11, color: "#9AA0A6", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 } }, "Equipment seen here"),
-                React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, Object.entries(selectedStats.equipCounts).map(([eq, count]) => (React.createElement("span", { key: eq, style: { fontSize: 11, background: "#2A2F34", padding: "3px 10px", borderRadius: 10, color: "#B8BCC0" } },
+                React.createElement("div", { style: { fontSize: 11, color: "#ACB3B9", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 } }, "Equipment seen here"),
+                React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, Object.entries(selectedStats.equipCounts).map(([eq, count]) => (React.createElement("span", { key: eq, style: { fontSize: 11, background: "#343B42", padding: "3px 10px", borderRadius: 10, color: "#B8BCC0" } },
                     eq,
                     " (",
                     count,
                     ")")))))),
             React.createElement("button", { onClick: () => setView("addReview"), style: submitBtnStyle }, "+ Leave a review"),
-            React.createElement("button", { onClick: () => setMergeMode(!mergeMode), style: { width: "100%", background: "transparent", border: "1px solid #3A4147", color: "#9AA0A6", borderRadius: 6, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginTop: 8 } }, mergeMode ? "Cancel" : "This is a duplicate — merge it with another stop"),
-            mergeMode && React.createElement("div", { style: { background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: 12, marginTop: 8 } },
-                React.createElement("div", { style: { fontSize: 12, color: "#9AA0A6", marginBottom: 8 } }, "Find the other entry for this same stop, then merge its reviews into this one. The other entry gets deleted."),
+            React.createElement("button", { onClick: () => setMergeMode(!mergeMode), style: { width: "100%", background: "transparent", border: "1px solid #454E57", color: "#ACB3B9", borderRadius: 6, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginTop: 8 } }, mergeMode ? "Cancel" : "This is a duplicate — merge it with another stop"),
+            mergeMode && React.createElement("div", { style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 12, marginTop: 8 } },
+                React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "Find the other entry for this same stop, then merge its reviews into this one. The other entry gets deleted."),
                 React.createElement("input", { value: mergeQuery, onChange: e => setMergeQuery(e.target.value), placeholder: "Search by name...", style: { ...inputStyle, marginBottom: 8 } }),
                 locations
                     .filter(l => l.id !== selected.id && TYPE_META[l.type] && mergeQuery.trim().length > 0 && l.name.toLowerCase().includes(mergeQuery.trim().toLowerCase()))
-                    .map(l => (React.createElement("div", { key: l.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid #2A2F34" } },
+                    .map(l => (React.createElement("div", { key: l.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid #343B42" } },
                         React.createElement("span", { style: { fontSize: 13 } }, l.name, " ", React.createElement("span", { style: { color: "#6B7278", fontSize: 11 } }, `(${locationStats(l.id).count} reviews)`)),
-                        React.createElement("button", { onClick: () => mergeInto(l.id), style: { background: "#FBC02D", color: "#14171A", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "Merge in")))
+                        React.createElement("button", { onClick: () => mergeInto(l.id), style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "Merge in")))
                     )),
-            React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#9AA0A6", margin: "20px 0 10px", textTransform: "uppercase" } },
+            React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#ACB3B9", margin: "20px 0 10px", textTransform: "uppercase" } },
                 selectedStats.count,
                 " Review",
                 selectedStats.count !== 1 ? "s" : "",
                 " ",
                 selectedStats.verifiedCount > 0 && `· ${selectedStats.verifiedCount} GPS-verified`),
-            React.createElement("div", { style: { display: "grid", gap: 10 } }, selectedStats.revs.map(r => (React.createElement("div", { key: r.id, style: { background: "#1F2428", border: "1px solid #2A2F34", borderRadius: 8, padding: 12 } },
+            React.createElement("div", { style: { display: "grid", gap: 10 } }, selectedStats.revs.map(r => (React.createElement("div", { key: r.id, style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 12 } },
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
                     React.createElement("span", { style: { fontWeight: 700, fontSize: 13 } },
                         r.initials,
@@ -512,11 +518,15 @@ function App() {
                     React.createElement("span", null,
                         "Dock ease ",
                         r.dockEase,
+                        "/5"),
+                    r.courtesy !== undefined && React.createElement("span", null,
+                        "Courtesy ",
+                        r.courtesy,
                         "/5")),
-                r.apptMissReason && React.createElement("div", { style: { fontSize: 12, color: "#9AA0A6", marginBottom: 6 } },
+                r.apptMissReason && React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 6 } },
                     "Missed reason: ",
                     r.apptMissReason),
-                r.amenities.length > 0 && (React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: r.notes ? 6 : 0 } }, r.amenities.map(a => React.createElement("span", { key: a, style: { fontSize: 10, background: "#2A2F34", padding: "2px 8px", borderRadius: 10, color: "#9AA0A6" } }, a)))),
+                r.amenities.length > 0 && (React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: r.notes ? 6 : 0 } }, r.amenities.map(a => React.createElement("span", { key: a, style: { fontSize: 10, background: "#343B42", padding: "2px 8px", borderRadius: 10, color: "#ACB3B9" } }, a)))),
                 r.notes && React.createElement("div", { style: { fontSize: 13, color: "#D8DADC" } }, r.notes))))))),
         view === "addLocation" && (React.createElement("div", { style: { padding: "16px 20px" } },
             React.createElement("div", { style: { fontWeight: 800, fontSize: 18, marginBottom: 16 } }, "Add a stop"),
@@ -524,21 +534,21 @@ function App() {
                 React.createElement("input", { value: newLoc.name, onChange: e => setNewLoc({ ...newLoc, name: e.target.value }), placeholder: "e.g. Acme Distribution Center", style: inputStyle }),
                 possibleDuplicates.length > 0 && React.createElement("div", { style: { background: "#3A3520", border: "1px solid #8A6A16", borderRadius: 6, padding: 10, marginTop: 8 } },
                     React.createElement("div", { style: { fontSize: 12, color: "#E8C766", fontWeight: 700, marginBottom: 6 } }, "Already on the map — is this one of these?"),
-                    possibleDuplicates.map(l => (React.createElement("button", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); setNewLoc({ name: "", type: "shipper", address: "", corridor: "", notes: "", lat: null, lng: null }); }, style: { display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#F2F0E9", fontSize: 13, padding: "4px 0", cursor: "pointer" } }, `→ ${l.name}${l.corridor ? " (" + l.corridor + ")" : ""}`))),
-                    React.createElement("div", { style: { fontSize: 11, color: "#9AA0A6", marginTop: 4 } }, "If it's not the same place, ignore this and keep filling out the form below."))),
+                    possibleDuplicates.map(l => (React.createElement("button", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); setNewLoc({ name: "", type: "shipper", address: "", corridor: "", notes: "", lat: null, lng: null }); }, style: { display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#F5F3ED", fontSize: 13, padding: "4px 0", cursor: "pointer" } }, `→ ${l.name}${l.corridor ? " (" + l.corridor + ")" : ""}`))),
+                    React.createElement("div", { style: { fontSize: 11, color: "#ACB3B9", marginTop: 4 } }, "If it's not the same place, ignore this and keep filling out the form below."))),
             React.createElement(Field, { label: "Type" },
                 React.createElement("div", { style: { display: "flex", gap: 8 } }, Object.entries(TYPE_META).map(([key, meta]) => (React.createElement("button", { key: key, onClick: () => setNewLoc({ ...newLoc, type: key }), style: {
                         flex: 1, padding: "10px", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer",
-                        border: newLoc.type === key ? `2px solid ${meta.color}` : "1px solid #3A4147",
+                        border: newLoc.type === key ? `2px solid ${meta.color}` : "1px solid #454E57",
                         background: newLoc.type === key ? "rgba(255,255,255,.05)" : "transparent",
-                        color: newLoc.type === key ? meta.color : "#9AA0A6"
+                        color: newLoc.type === key ? meta.color : "#ACB3B9"
                     } }, meta.label))))),
             React.createElement(Field, { label: "Address" },
                 React.createElement("input", { value: newLoc.address, onChange: e => setNewLoc({ ...newLoc, address: e.target.value }), placeholder: "Street, city, state", style: inputStyle })),
             React.createElement(Field, { label: "Corridor / route" },
                 React.createElement("input", { value: newLoc.corridor, onChange: e => setNewLoc({ ...newLoc, corridor: e.target.value }), placeholder: "e.g. I-24 near Exit 45", style: inputStyle })),
             React.createElement(Field, { label: "GPS coordinates", hint: "Capture while physically at the stop so reviews can be verified against it." },
-                React.createElement("button", { onClick: captureLocGeo, style: { display: "flex", alignItems: "center", gap: 8, background: "#2A2F34", border: "1px solid #3A4147", borderRadius: 6, padding: "10px 14px", color: newLoc.lat ? "#4FA36B" : "#F2F0E9", fontSize: 13, fontWeight: 700, cursor: "pointer" } },
+                React.createElement("button", { onClick: captureLocGeo, style: { display: "flex", alignItems: "center", gap: 8, background: "#343B42", border: "1px solid #454E57", borderRadius: 6, padding: "10px 14px", color: newLoc.lat ? "#4FA36B" : "#F5F3ED", fontSize: 13, fontWeight: 700, cursor: "pointer" } },
                     "\uD83D\uDCCD ",
                     locGeoStatus === "checking" ? "Getting location..." : newLoc.lat ? `Captured (${newLoc.lat.toFixed(4)}, ${newLoc.lng.toFixed(4)})` : "Use my current location")),
             React.createElement(Field, { label: "Notes (optional)" },
@@ -548,7 +558,7 @@ function App() {
             React.createElement("div", { style: { fontWeight: 800, fontSize: 18, marginBottom: 4 } },
                 "Review: ",
                 selected.name),
-            React.createElement("div", { style: { fontSize: 13, color: "#9AA0A6", marginBottom: 16 } }, "Give the next driver the real picture. Takes a minute."),
+            React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9", marginBottom: 16 } }, "Give the next driver the real picture. Takes a minute."),
             React.createElement(Field, { label: "Were you picking up or delivering?" },
                 React.createElement(ChipRow, { options: ["pickup", "delivery"], value: newRev.direction, onChange: v => setNewRev({ ...newRev, direction: v }), colorMap: { pickup: "#4FA3D1", delivery: "#D96B4F" } })),
             React.createElement(Field, { label: "What were you hauling?" },
@@ -575,11 +585,13 @@ function App() {
                 React.createElement(ChipRow, { options: ["yes", "no", "limited"], value: newRev.overnightParking, onChange: v => setNewRev({ ...newRev, overnightParking: v }) })),
             React.createElement(Field, { label: `Dock ease: ${newRev.dockEase}/5` },
                 React.createElement("input", { type: "range", min: 1, max: 5, value: newRev.dockEase, onChange: e => setNewRev({ ...newRev, dockEase: e.target.value }), style: { width: "100%" } })),
+            React.createElement(Field, { label: `How were you treated? (courtesy): ${newRev.courtesy}/5` },
+                React.createElement("input", { type: "range", min: 1, max: 5, value: newRev.courtesy, onChange: e => setNewRev({ ...newRev, courtesy: e.target.value }), style: { width: "100%" } })),
             React.createElement(Field, { label: "Amenities" },
                 React.createElement(ChipRow, { options: AMENITIES, value: newRev.amenities, onChange: v => setNewRev({ ...newRev, amenities: v }), multi: true })),
             React.createElement(Field, { label: "Verify you're actually here", hint: "Optional, but verified reviews carry more weight." },
-                React.createElement("button", { onClick: verifyReviewGeo, style: { display: "flex", alignItems: "center", gap: 8, background: "#2A2F34", border: "1px solid #3A4147", borderRadius: 6, padding: "10px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer",
-                        color: newRev.gpsStatus === "verified" ? "#4FA36B" : newRev.gpsStatus === "mismatch" ? "#D9694F" : "#F2F0E9" } },
+                React.createElement("button", { onClick: verifyReviewGeo, style: { display: "flex", alignItems: "center", gap: 8, background: "#343B42", border: "1px solid #454E57", borderRadius: 6, padding: "10px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                        color: newRev.gpsStatus === "verified" ? "#4FA36B" : newRev.gpsStatus === "mismatch" ? "#D9694F" : "#F5F3ED" } },
                     "\uD83D\uDCCD ",
                     newRev.gpsStatus === "checking" ? "Checking..." : newRev.gpsStatus === "verified" ? "Verified on site" : newRev.gpsStatus === "mismatch" ? "Location doesn't match — tap to retry" : "Verify my location")),
             React.createElement(Field, { label: "Notes (optional)" },
@@ -587,7 +599,7 @@ function App() {
             React.createElement(Field, { label: "Your initials (optional)" },
                 React.createElement("input", { value: newRev.initials, onChange: e => setNewRev({ ...newRev, initials: e.target.value }), placeholder: "e.g. J.D.", style: inputStyle })),
             React.createElement("button", { onClick: submitReview, style: submitBtnStyle }, "Post review"))),
-        toast && (React.createElement("div", { style: { position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#1B5E3A", border: "2px solid #F2F0E9", borderRadius: 6, padding: "10px 20px", fontSize: 13, fontWeight: 700, zIndex: 50, maxWidth: "90%", textAlign: "center" } }, toast))));
+        toast && (React.createElement("div", { style: { position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#1B5E3A", border: "2px solid #F5F3ED", borderRadius: 6, padding: "10px 20px", fontSize: 13, fontWeight: 700, zIndex: 50, maxWidth: "90%", textAlign: "center" } }, toast))));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));
 
