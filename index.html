@@ -74,7 +74,7 @@ const TYPE_META = {
     shipper: { label: "Shipper", emoji: "📦", color: "#4FA3D1" },
     receiver: { label: "Receiver", emoji: "🏭", color: "#D96B4F" },
 };
-const AMENITIES = ["Restroom", "Food nearby", "Easy backing", "Well lit"];
+const AMENITIES = ["Restroom", "Food nearby", "Easy backing", "Well lit", "Scale on site"];
 const EQUIPMENT = ["Dry Van", "Reefer", "Flatbed", "Step Deck", "Power Only", "Tanker", "Other"];
 const TIERS = [
     { count: 10, reward: "Founding Contributor badge" },
@@ -83,6 +83,29 @@ const TIERS = [
     { count: 250, reward: "Lifetime founding-member discount" },
 ];
 function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+function reviewQuality(r) {
+    let score = 0;
+    if (r.checkInWait !== null) score++;
+    if (r.dockTime !== null) score++;
+    if (r.overnightParking !== "unknown") score++;
+    if (r.amenities && r.amenities.length > 0) score++;
+    if (r.notes && r.notes.trim().length > 10) score++;
+    if (r.gpsStatus === "verified") score += 2;
+    if (score >= 5) return { label: "Thorough & verified", color: "#4FA36B" };
+    if (score >= 2) return { label: "Detailed", color: "#4FA3D1" };
+    return { label: "Quick review", color: "#ACB3B9" };
+}
+function timeSince(ts) {
+    const diffMin = (Date.now() - ts) / 60000;
+    if (diffMin < 60) return `${Math.max(1, Math.round(diffMin))}m ago`;
+    const diffHr = diffMin / 60;
+    if (diffHr < 24) return `${Math.round(diffHr)}h ago`;
+    const diffDay = diffHr / 24;
+    if (diffDay < 30) return `${Math.round(diffDay)}d ago`;
+    const diffMo = diffDay / 30;
+    if (diffMo < 12) return `${Math.round(diffMo)}mo ago`;
+    return `${Math.round(diffMo / 12)}y ago`;
+}
 function confidenceTier(count) {
     if (!count) return null;
     if (count < 5) return { label: "Early data", color: "#ACB3B9" };
@@ -181,6 +204,7 @@ function App() {
     const [nearMeStatus, setNearMeStatus] = useState("idle");
     const [radiusMiles, setRadiusMiles] = useState(50);
     const [mergeMode, setMergeMode] = useState(false);
+    const [quickUpdateMode, setQuickUpdateMode] = useState(false);
     const [mergeQuery, setMergeQuery] = useState("");
     const [selectedId, setSelectedId] = useState(null);
     const [view, setView] = useState("list");
@@ -208,6 +232,49 @@ function App() {
         revs.forEach(r => { if (r.equipment)
             equipCounts[r.equipment] = (equipCounts[r.equipment] || 0) + 1; });
         const verifiedCount = revs.filter(r => r.gpsStatus === "verified").length;
+        const visitDurations = revs
+            .map(r => (r.checkInWait === null && r.dockTime === null) ? null : (r.checkInWait || 0) + (r.dockTime || 0))
+            .filter(v => v !== null);
+        const avgVisit = visitDurations.length ? avg(visitDurations) : null;
+        const shortestVisit = visitDurations.length ? Math.min(...visitDurations) : null;
+        const longestVisit = visitDurations.length ? Math.max(...visitDurations) : null;
+        const lastVisitAt = revs.length ? revs[0].createdAt : null;
+
+        let changeAlert = null;
+        if (revs.length >= 4) {
+            const latest = revs[0];
+            const history = revs.slice(1);
+            const parkingHistory = history.map(r => r.overnightParking).filter(v => v && v !== "unknown");
+            if (parkingHistory.length >= 3 && latest.overnightParking !== "unknown") {
+                const histYesPct = pct(parkingHistory.filter(v => v === "yes").length, parkingHistory.length);
+                if (histYesPct >= 60 && latest.overnightParking !== "yes") {
+                    changeAlert = { field: "Overnight parking", message: `Most recent report says overnight parking may no longer be available — it was reported available in ${histYesPct}% of earlier reviews.` };
+                } else if (histYesPct <= 40 && latest.overnightParking === "yes") {
+                    changeAlert = { field: "Overnight parking", message: "Most recent report says overnight parking is now available — earlier reviews mostly said it wasn't." };
+                }
+            }
+            if (!changeAlert) {
+                const detOwedHistory = history.filter(r => r.detentionOwed !== undefined);
+                const histDetPct = pct(detOwedHistory.filter(r => r.detentionOwed === "yes").length, detOwedHistory.length);
+                if (detOwedHistory.length >= 3 && latest.detentionOwed === "yes" && histDetPct <= 20) {
+                    changeAlert = { field: "Detention", message: `Most recent driver got detained past free time here — that was rare in earlier reviews (${histDetPct}%).` };
+                }
+            }
+        }
+
+        const dockTimeSeries = revs
+            .filter(r => r.dockTime !== null)
+            .sort((a, b) => a.createdAt - b.createdAt);
+        let unloadTrend = null;
+        if (dockTimeSeries.length >= 4) {
+            const mid = Math.floor(dockTimeSeries.length / 2);
+            const olderAvg = avg(dockTimeSeries.slice(0, mid).map(r => r.dockTime));
+            const newerAvg = avg(dockTimeSeries.slice(mid).map(r => r.dockTime));
+            const pctChange = ((newerAvg - olderAvg) / olderAvg) * 100;
+            if (pctChange <= -10) unloadTrend = { arrow: "↓", label: "Getting faster", color: "#4FA36B" };
+            else if (pctChange >= 10) unloadTrend = { arrow: "↑", label: "Getting slower", color: "#D9694F" };
+            else unloadTrend = { arrow: "→", label: "Holding steady", color: "#ACB3B9" };
+        }
         let score = null;
         if (revs.length) {
             const easeScore = ease !== null ? ease : 3;
@@ -222,6 +289,7 @@ function App() {
             return { count: d.length, checkInWait: avg(d.map(r => r.checkInWait)), dockTime: avg(d.map(r => r.dockTime)) };
         };
         return { count: revs.length, checkInWait, dockTime, ease, courtesy, lumper, detentionFreqPct, apptKeptPct,
+            avgVisit, shortestVisit, longestVisit, lastVisitAt, unloadTrend, changeAlert,
             parkingYes, equipCounts, verifiedCount, score, revs, pickup: byDir("pickup"), delivery: byDir("delivery") };
     };
     const filtered = locations
@@ -445,6 +513,11 @@ function App() {
                 confidenceTier(selectedStats.count) && React.createElement("span", { style: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 10, background: `${confidenceTier(selectedStats.count).color}22`, color: confidenceTier(selectedStats.count).color } }, confidenceTier(selectedStats.count).label),
                 React.createElement("span", { style: { fontSize: 12, color: "#ACB3B9" } }, `\u2713 ${selectedStats.verifiedCount} GPS-verified visit${selectedStats.verifiedCount !== 1 ? "s" : ""}`),
                 React.createElement("span", { style: { fontSize: 12, color: "#ACB3B9" } }, `\u00B7 ${selectedStats.count} total review${selectedStats.count !== 1 ? "s" : ""}`)),
+            selectedStats.changeAlert && React.createElement("div", { style: { background: "#3A3520", border: "1px solid #8A6A16", borderRadius: 8, padding: 12, marginBottom: 16, display: "flex", gap: 8, alignItems: "flex-start" } },
+                React.createElement("span", { style: { flexShrink: 0 } }, "⚠️"),
+                React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#E8C766", marginBottom: 2 } }, "What's changed"),
+                    React.createElement("div", { style: { fontSize: 13, color: "#D8DADC" } }, selectedStats.changeAlert.message))),
             selected.notes && React.createElement("div", { style: { background: "#262B30", borderRadius: 8, padding: 12, fontSize: 13, color: "#B8BCC0", marginBottom: 16 } }, selected.notes),
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 } },
                 React.createElement(StatBox, { label: "Dock ease", value: selectedStats.ease !== null ? `${selectedStats.ease.toFixed(1)}/5` : "—", emoji: "\uD83D\uDE9A", color: "#4FA36B" }),
@@ -454,7 +527,11 @@ function App() {
                 React.createElement(StatBox, { label: "Appointments kept", value: selectedStats.apptKeptPct !== null ? `${selectedStats.apptKeptPct}%` : "—", emoji: "\uD83D\uDCC5", color: "#9B8AE6" }),
                 React.createElement(StatBox, { label: "Detained past free time", value: selectedStats.detentionFreqPct !== null ? `${selectedStats.detentionFreqPct}% of visits` : "—", emoji: "\u26A0\uFE0F", color: "#E0A526" }),
                 React.createElement(StatBox, { label: "Avg lumper fee", value: selectedStats.lumper !== null ? `$${Math.round(selectedStats.lumper)}` : "—", emoji: "\uD83D\uDCB5", color: "#D9B23E" }),
-                React.createElement(StatBox, { label: "Overnight parking", value: selectedStats.parkingYes !== null ? `${selectedStats.parkingYes}% say yes` : "—", emoji: "\uD83D\uDCCD", color: "#3FA9A0" })),
+                React.createElement(StatBox, { label: "Overnight parking", value: selectedStats.parkingYes !== null ? `${selectedStats.parkingYes}% say yes` : "—", emoji: "\uD83D\uDCCD", color: "#3FA9A0" }),
+                React.createElement(StatBox, { label: "Avg total visit", value: selectedStats.avgVisit !== null ? formatHM(selectedStats.avgVisit) : "—", emoji: "\u23F1", color: "#4FA3D1" }),
+                React.createElement(StatBox, { label: "Shortest / longest visit", value: selectedStats.shortestVisit !== null ? `${formatHM(selectedStats.shortestVisit)} – ${formatHM(selectedStats.longestVisit)}` : "—", emoji: "\u23F1", color: "#6FB8DE" }),
+                React.createElement(StatBox, { label: "Last visit reported", value: selectedStats.lastVisitAt !== null ? timeSince(selectedStats.lastVisitAt) : "—", emoji: "\uD83D\uDCC5", color: "#C97FD1" }),
+                React.createElement(StatBox, { label: "Unload time trend", value: selectedStats.unloadTrend ? `${selectedStats.unloadTrend.arrow} ${selectedStats.unloadTrend.label}` : "Not enough data yet", emoji: "\u23F1", color: selectedStats.unloadTrend ? selectedStats.unloadTrend.color : "#ACB3B9" })),
             (selectedStats.pickup.count > 0 || selectedStats.delivery.count > 0) && (React.createElement("div", { style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 12, marginBottom: 14 } },
                 React.createElement("div", { style: { fontSize: 11, color: "#ACB3B9", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 } }, "Pickup vs delivery"),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 12 } },
@@ -479,7 +556,9 @@ function App() {
                     " (",
                     count,
                     ")")))))),
-            React.createElement("button", { onClick: () => setView("addReview"), style: submitBtnStyle }, "+ Leave a review"),
+            React.createElement("div", { style: { display: "flex", gap: 8 } },
+                React.createElement("button", { onClick: () => { setQuickUpdateMode(false); setView("addReview"); }, style: { ...submitBtnStyle, flex: 1 } }, "+ Leave a review"),
+                React.createElement("button", { onClick: () => { setQuickUpdateMode(true); setView("addReview"); }, style: { flex: 1, background: "#262B30", color: "#F5F3ED", border: "1px solid #454E57", borderRadius: 6, padding: "13px", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Quick update")),
             React.createElement("button", { onClick: () => setMergeMode(!mergeMode), style: { width: "100%", background: "transparent", border: "1px solid #454E57", color: "#ACB3B9", borderRadius: 6, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginTop: 8 } }, mergeMode ? "Cancel" : "This is a duplicate — merge it with another stop"),
             mergeMode && React.createElement("div", { style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 12, marginTop: 8 } },
                 React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "Find the other entry for this same stop, then merge its reviews into this one. The other entry gets deleted."),
@@ -496,14 +575,17 @@ function App() {
                 selectedStats.count !== 1 ? "s" : "",
                 " ",
                 selectedStats.verifiedCount > 0 && `· ${selectedStats.verifiedCount} GPS-verified`),
-            React.createElement("div", { style: { display: "grid", gap: 10 } }, selectedStats.revs.map(r => (React.createElement("div", { key: r.id, style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 12 } },
+            React.createElement("div", { style: { display: "grid", gap: 10 } }, selectedStats.revs.map(r => {
+                const quality = reviewQuality(r);
+                return (React.createElement("div", { key: r.id, style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 12 } },
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
-                    React.createElement("span", { style: { fontWeight: 700, fontSize: 13 } },
+                    React.createElement("span", { style: { fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 6 } },
                         r.initials,
                         " ",
                         r.direction === "pickup" ? "↑" : "↓",
                         " ",
-                        r.gpsStatus === "verified" && "✓"),
+                        r.gpsStatus === "verified" && "✓",
+                        React.createElement("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: `${quality.color}22`, color: quality.color } }, quality.label)),
                     React.createElement("span", { style: { fontSize: 11, color: "#6B7278" } }, new Date(r.createdAt).toLocaleDateString())),
                 React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#B8BCC0", marginBottom: 6 } },
                     React.createElement("span", null, r.equipment),
@@ -538,7 +620,8 @@ function App() {
                     "Missed reason: ",
                     r.apptMissReason),
                 r.amenities.length > 0 && (React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: r.notes ? 6 : 0 } }, r.amenities.map(a => React.createElement("span", { key: a, style: { fontSize: 10, background: "#343B42", padding: "2px 8px", borderRadius: 10, color: "#ACB3B9" } }, a)))),
-                r.notes && React.createElement("div", { style: { fontSize: 13, color: "#D8DADC" } }, r.notes))))))),
+                r.notes && React.createElement("div", { style: { fontSize: 13, color: "#D8DADC" } }, r.notes)));
+            })))),
         view === "addLocation" && (React.createElement("div", { style: { padding: "16px 20px" } },
             React.createElement("div", { style: { fontWeight: 800, fontSize: 18, marginBottom: 16 } }, "Add a stop"),
             React.createElement(Field, { label: "Name" },
@@ -569,7 +652,7 @@ function App() {
             React.createElement("div", { style: { fontWeight: 800, fontSize: 18, marginBottom: 4 } },
                 "Review: ",
                 selected.name),
-            React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9", marginBottom: 16 } }, "Give the next driver the real picture. Takes a minute."),
+            React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9", marginBottom: 16 } }, quickUpdateMode ? "Been here before? Just flag what's changed since last time — skip anything that's still the same." : "Give the next driver the real picture. Takes a minute."),
             React.createElement(Field, { label: "Were you picking up or delivering?" },
                 React.createElement(ChipRow, { options: ["pickup", "delivery"], value: newRev.direction, onChange: v => setNewRev({ ...newRev, direction: v }), colorMap: { pickup: "#4FA3D1", delivery: "#D96B4F" } })),
             React.createElement(Field, { label: "What were you hauling?" },
