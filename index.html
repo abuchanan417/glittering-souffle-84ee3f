@@ -83,6 +83,12 @@ const TIERS = [
     { count: 250, reward: "Lifetime founding-member discount" },
 ];
 function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+function confidenceTier(count) {
+    if (!count) return null;
+    if (count < 5) return { label: "Early data", color: "#ACB3B9" };
+    if (count < 15) return { label: "Building confidence", color: "#4FA3D1" };
+    return { label: "High confidence", color: "#4FA36B" };
+}
 function formatHM(mins) {
     const m = Math.round(mins);
     const h = Math.floor(m / 60);
@@ -423,17 +429,22 @@ function App() {
                             React.createElement("span", null,
                                 l.stats.count,
                                 " review",
-                                l.stats.count !== 1 ? "s" : ""))),
+                                l.stats.count !== 1 ? "s" : ""),
+                            l.stats.verifiedCount > 0 && React.createElement("span", { style: { color: "#4FA36B" } }, `\u2713 ${l.stats.verifiedCount} verified`))),
                     React.createElement("span", { style: { color: "#4A5157" } }, "\u203A")));
             })))),
         view === "detail" && selected && selectedStats && (React.createElement("div", { style: { padding: "16px 20px" } },
-            React.createElement("div", { style: { display: "flex", gap: 14, alignItems: "center", marginBottom: 16 } },
+            React.createElement("div", { style: { display: "flex", gap: 14, alignItems: "center", marginBottom: 8 } },
                 React.createElement(ScoreBadge, { score: selectedStats.score, size: "lg" }),
                 React.createElement("div", null,
                     React.createElement("div", { style: { fontSize: 11, color: TYPE_META[selected.type].color, fontWeight: 700, textTransform: "uppercase" } }, TYPE_META[selected.type].label),
                     React.createElement("div", { style: { fontWeight: 800, fontSize: 20 } }, selected.name),
                     React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9" } }, selected.address || selected.corridor),
                     selected.lat && React.createElement("div", { style: { fontSize: 11, color: "#4FA36B", marginTop: 2 } }, "\u2713 Coordinates on file \u2014 reviews can be GPS-verified here"))),
+            React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 16 } },
+                confidenceTier(selectedStats.count) && React.createElement("span", { style: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 10, background: `${confidenceTier(selectedStats.count).color}22`, color: confidenceTier(selectedStats.count).color } }, confidenceTier(selectedStats.count).label),
+                React.createElement("span", { style: { fontSize: 12, color: "#ACB3B9" } }, `\u2713 ${selectedStats.verifiedCount} GPS-verified visit${selectedStats.verifiedCount !== 1 ? "s" : ""}`),
+                React.createElement("span", { style: { fontSize: 12, color: "#ACB3B9" } }, `\u00B7 ${selectedStats.count} total review${selectedStats.count !== 1 ? "s" : ""}`)),
             selected.notes && React.createElement("div", { style: { background: "#262B30", borderRadius: 8, padding: 12, fontSize: 13, color: "#B8BCC0", marginBottom: 16 } }, selected.notes),
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 } },
                 React.createElement(StatBox, { label: "Dock ease", value: selectedStats.ease !== null ? `${selectedStats.ease.toFixed(1)}/5` : "—", emoji: "\uD83D\uDE9A", color: "#4FA36B" }),
