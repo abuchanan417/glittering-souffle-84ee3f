@@ -117,6 +117,7 @@ const TYPE_META = {
     shipper: { label: "Shipper", emoji: "📦", color: "#4FA3D1" },
     receiver: { label: "Receiver", emoji: "🏭", color: "#D96B4F" },
 };
+function typeMeta(type) { return TYPE_META[type] || TYPE_META.shipper; }
 const AMENITIES = ["Restroom", "Food nearby", "Easy backing", "Well lit", "Scale on site"];
 const EQUIPMENT = ["Dry Van", "Reefer", "Flatbed", "Step Deck", "Power Only", "Tanker", "Other"];
 const RUN_TYPES = ["OTR", "Regional", "Local", "Dedicated", "Team/Sleeper"];
@@ -194,20 +195,28 @@ function MapView({ locations, onSelect }) {
     const mapRef = React.useRef(null);
     const mapInstance = React.useRef(null);
     const markersLayer = React.useRef(null);
+    const [leafletFailed, setLeafletFailed] = React.useState(false);
 
     React.useEffect(() => {
-        if (!mapInstance.current && mapRef.current) {
-            mapInstance.current = L.map(mapRef.current, { zoomControl: true }).setView([37.8, -96], 4);
-            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                attribution: "&copy; OpenStreetMap contributors",
-                maxZoom: 18,
-            }).addTo(mapInstance.current);
-            markersLayer.current = L.layerGroup().addTo(mapInstance.current);
-        }
+        if (typeof L === "undefined") { setLeafletFailed(true); return; }
+        try {
+            if (!mapInstance.current && mapRef.current) {
+                mapInstance.current = L.map(mapRef.current, { zoomControl: true }).setView([37.8, -96], 4);
+                L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                    attribution: "&copy; OpenStreetMap contributors",
+                    maxZoom: 18,
+                }).addTo(mapInstance.current);
+                markersLayer.current = L.layerGroup().addTo(mapInstance.current);
+            }
+        } catch (e) { setLeafletFailed(true); }
         return () => {
             if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; }
         };
     }, []);
+
+    if (leafletFailed) {
+        return React.createElement("div", { style: { padding: 24, textAlign: "center", color: "#ACB3B9", fontSize: 13, background: "#262B30", borderRadius: 8, marginBottom: 12 } }, "Map couldn't load (an ad blocker or extension may be blocking it). Try List view instead.");
+    }
 
     React.useEffect(() => {
         if (!mapInstance.current || !markersLayer.current) return;
@@ -219,7 +228,7 @@ function MapView({ locations, onSelect }) {
                 radius: 9, fillColor: color, color: "#F5F3ED", weight: 2, fillOpacity: 0.9,
             }).addTo(markersLayer.current);
             const scoreLabel = l.stats.score === null ? "—" : l.stats.score.toFixed(1);
-            marker.bindPopup(`<strong>${l.name}</strong><br/>${TYPE_META[l.type].label} · Score ${scoreLabel}<br/><a href="#" data-loc-id="${l.id}" style="color:#4FA3D1;">View details →</a>`);
+            marker.bindPopup(`<strong>${l.name}</strong><br/>${typeMeta(l.type).label} · Score ${scoreLabel}<br/><a href="#" data-loc-id="${l.id}" style="color:#4FA3D1;">View details →</a>`);
             marker.on("popupopen", () => {
                 const link = document.querySelector(`a[data-loc-id="${l.id}"]`);
                 if (link) link.onclick = (e) => { e.preventDefault(); onSelect(l.id); };
@@ -455,7 +464,7 @@ function App() {
             parkingYes, equipCounts, verifiedCount, score, revs, pickup: byDir("pickup"), delivery: byDir("delivery") };
     };
     const filtered = locations
-        .filter(l => TYPE_META[l.type])
+        .filter(l => l.type !== "truckstop")
         .filter(l => filterType === "all" || l.type === filterType)
         .filter(l => !query ||
             l.name.toLowerCase().includes(query.toLowerCase()) ||
@@ -468,12 +477,12 @@ function App() {
             return miles <= radiusMiles;
         })
         .map(l => ({ ...l, stats: locationStats(l.id) }));
-    const noCoordCount = nearMe ? locations.filter(l => TYPE_META[l.type] && (!l.lat || !l.lng)).length : 0;
+    const noCoordCount = nearMe ? locations.filter(l => l.type !== "truckstop" && (!l.lat || !l.lng)).length : 0;
     const selected = locations.find(l => l.id === selectedId);
     const isAdmin = session && ADMIN_EMAILS.includes(session.user.email);
     const selectedStats = selected ? locationStats(selected.id) : null;
     const possibleDuplicates = newLoc.name.trim().length > 2
-        ? locations.filter(l => TYPE_META[l.type] &&
+        ? locations.filter(l => l.type !== "truckstop" &&
             (l.name.trim().toLowerCase().includes(newLoc.name.trim().toLowerCase()) ||
              newLoc.name.trim().toLowerCase().includes(l.name.trim().toLowerCase())))
         : [];
@@ -489,7 +498,7 @@ function App() {
         const r = await getGeo();
         if (r.error) { setLocationCheckStatus("idle"); showToast(r.error); return; }
         const candidates = locations
-            .filter(l => TYPE_META[l.type] && l.lat && l.lng)
+            .filter(l => l.type !== "truckstop" && l.lat && l.lng)
             .map(l => ({ location: l, distanceM: distanceMeters(r.lat, r.lng, l.lat, l.lng) }))
             .sort((a, b) => a.distanceM - b.distanceM);
         const closest = candidates[0];
@@ -735,8 +744,8 @@ function App() {
                     React.createElement("div", { style: { fontSize: 13 } }, "Help the next driver — be the first to log this stop.")
                 ))),
             displayMode === "list" && React.createElement("div", { style: { display: "grid", gap: 12 } }, filtered.map(l => {
-                const meta = TYPE_META[l.type];
-                return (React.createElement("div", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); }, style: { background: "#262B30", border: "1px solid #343B42", borderLeft: `4px solid ${TYPE_META[l.type].color}`, borderRadius: 8, padding: 14, display: "flex", gap: 14, alignItems: "center", cursor: "pointer" } },
+                const meta = typeMeta(l.type);
+                return (React.createElement("div", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); }, style: { background: "#262B30", border: "1px solid #343B42", borderLeft: `4px solid ${typeMeta(l.type).color}`, borderRadius: 8, padding: 14, display: "flex", gap: 14, alignItems: "center", cursor: "pointer" } },
                     React.createElement(ScoreBadge, { score: l.stats.score }),
                     React.createElement("div", { style: { flex: 1, minWidth: 0 } },
                         React.createElement("div", { style: { fontSize: 11, color: meta.color, fontWeight: 700, textTransform: "uppercase", marginBottom: 3 } },
@@ -777,7 +786,7 @@ function App() {
             React.createElement("div", { style: { display: "flex", gap: 14, alignItems: "center", marginBottom: 8 } },
                 React.createElement(ScoreBadge, { score: selectedStats.score, size: "lg" }),
                 React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 11, color: TYPE_META[selected.type].color, fontWeight: 700, textTransform: "uppercase" } }, TYPE_META[selected.type].label),
+                    React.createElement("div", { style: { fontSize: 11, color: typeMeta(selected.type).color, fontWeight: 700, textTransform: "uppercase" } }, typeMeta(selected.type).label),
                     React.createElement("div", { style: { fontWeight: 800, fontSize: 20 } }, selected.name),
                     React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9" } }, selected.address || selected.corridor),
                     selected.lat && React.createElement("div", { style: { fontSize: 11, color: "#4FA36B", marginTop: 2 } }, "\u2713 Verified where it matters — reviews here can be GPS-checked"))),
@@ -839,7 +848,7 @@ function App() {
                     React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "Find the other entry for this same stop, then merge its reviews into this one. The other entry gets deleted."),
                     React.createElement("input", { value: mergeQuery, onChange: e => setMergeQuery(e.target.value), placeholder: "Search by name...", style: { ...inputStyle, marginBottom: 8 } }),
                     locations
-                        .filter(l => l.id !== selected.id && TYPE_META[l.type] && mergeQuery.trim().length > 0 && l.name.toLowerCase().includes(mergeQuery.trim().toLowerCase()))
+                        .filter(l => l.id !== selected.id && l.type !== "truckstop" && mergeQuery.trim().length > 0 && l.name.toLowerCase().includes(mergeQuery.trim().toLowerCase()))
                         .map(l => (React.createElement("div", { key: l.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid #343B42" } },
                             React.createElement("span", { style: { fontSize: 13 } }, l.name, " ", React.createElement("span", { style: { color: "#6B7278", fontSize: 11 } }, `(${locationStats(l.id).count} reviews)`)),
                             React.createElement("button", { onClick: () => mergeInto(l.id), style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "Merge in")))
