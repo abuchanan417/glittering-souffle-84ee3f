@@ -10,12 +10,16 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png" />
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#1B5E3A" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; background: #1C2024; font-family: system-ui, -apple-system, sans-serif; color: #F5F3ED; }
   input, textarea { font-family: inherit; }
   ::placeholder { color: #6B7278; }
   button { font-family: inherit; }
+  .leaflet-popup-content-wrapper { background: #262B30; color: #F5F3ED; }
+  .leaflet-popup-tip { background: #262B30; }
 </style>
 </head>
 <body>
@@ -38,8 +42,8 @@ const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 async function loadAllData() {
   const [locRes, revRes] = await Promise.all([
-    db.from("locations").select("*"),
-    db.from("reviews").select("*"),
+    db.from("locations").select("*").range(0, 9999),
+    db.from("reviews").select("*").range(0, 9999),
   ]);
   if (locRes.error || revRes.error) {
     return { locations: [], reviews: [], error: (locRes.error || revRes.error).message };
@@ -116,6 +120,10 @@ const TYPE_META = {
 const AMENITIES = ["Restroom", "Food nearby", "Easy backing", "Well lit", "Scale on site"];
 const EQUIPMENT = ["Dry Van", "Reefer", "Flatbed", "Step Deck", "Power Only", "Tanker", "Other"];
 const RUN_TYPES = ["OTR", "Regional", "Local", "Dedicated", "Team/Sleeper"];
+
+// Only these signed-in accounts can merge duplicate locations. Everyone else
+// can flag a duplicate but not actually combine two stops.
+const ADMIN_EMAILS = ["test@docktruth.dev"];
 const TIERS = [
     { count: 10, reward: "Founding Contributor badge" },
     { count: 25, reward: "Early access to new features" },
@@ -182,6 +190,49 @@ function getGeo() {
     });
 }
 /* ---------- SMALL COMPONENTS ----------------------------------------- */
+function MapView({ locations, onSelect }) {
+    const mapRef = React.useRef(null);
+    const mapInstance = React.useRef(null);
+    const markersLayer = React.useRef(null);
+
+    React.useEffect(() => {
+        if (!mapInstance.current && mapRef.current) {
+            mapInstance.current = L.map(mapRef.current, { zoomControl: true }).setView([37.8, -96], 4);
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: "&copy; OpenStreetMap contributors",
+                maxZoom: 18,
+            }).addTo(mapInstance.current);
+            markersLayer.current = L.layerGroup().addTo(mapInstance.current);
+        }
+        return () => {
+            if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; }
+        };
+    }, []);
+
+    React.useEffect(() => {
+        if (!mapInstance.current || !markersLayer.current) return;
+        markersLayer.current.clearLayers();
+        const withCoords = locations.filter(l => l.lat && l.lng);
+        withCoords.forEach(l => {
+            const color = l.stats.score === null ? "#ACB3B9" : l.stats.score >= 4 ? "#4FA36B" : l.stats.score >= 2.5 ? "#8A6A16" : "#7A2E28";
+            const marker = L.circleMarker([l.lat, l.lng], {
+                radius: 9, fillColor: color, color: "#F5F3ED", weight: 2, fillOpacity: 0.9,
+            }).addTo(markersLayer.current);
+            const scoreLabel = l.stats.score === null ? "—" : l.stats.score.toFixed(1);
+            marker.bindPopup(`<strong>${l.name}</strong><br/>${TYPE_META[l.type].label} · Score ${scoreLabel}<br/><a href="#" data-loc-id="${l.id}" style="color:#4FA3D1;">View details →</a>`);
+            marker.on("popupopen", () => {
+                const link = document.querySelector(`a[data-loc-id="${l.id}"]`);
+                if (link) link.onclick = (e) => { e.preventDefault(); onSelect(l.id); };
+            });
+        });
+        if (withCoords.length > 0) {
+            const bounds = L.latLngBounds(withCoords.map(l => [l.lat, l.lng]));
+            mapInstance.current.fitBounds(bounds, { padding: [30, 30], maxZoom: 12 });
+        }
+    }, [locations]);
+
+    return React.createElement("div", { ref: mapRef, style: { width: "100%", height: "420px", borderRadius: 8, overflow: "hidden", marginBottom: 12 } });
+}
 function ScoreBadge({ score, size }) {
     const dim = size === "lg" ? 72 : 44;
     const fontSize = size === "lg" ? 24 : 15;
@@ -250,6 +301,8 @@ function App() {
     const [saveError, setSaveError] = useState(null);
     const [myCount, setMyCount] = useState(0);
     const [filterType, setFilterType] = useState("all");
+    const [displayMode, setDisplayMode] = useState("list"); // list | map
+    const [showLegend, setShowLegend] = useState(false);
     const [query, setQuery] = useState("");
     const [nearMe, setNearMe] = useState(false);
     const [userGeo, setUserGeo] = useState(null);
@@ -326,6 +379,8 @@ function App() {
     const locationStats = (locId) => {
         const revs = reviews.filter(r => r.locationId === locId).sort((a, b) => b.createdAt - a.createdAt);
         const checkInWait = avg(revs.map(r => r.checkInWait));
+        const apptWait = avg(revs.filter(r => r.scheduling === "appointment").map(r => r.checkInWait));
+        const fcfsWait = avg(revs.filter(r => r.scheduling === "fcfs").map(r => r.checkInWait));
         const dockTime = avg(revs.map(r => r.dockTime));
         const ease = avg(revs.map(r => r.dockEase));
         const courtesy = avg(revs.map(r => r.courtesy));
@@ -395,7 +450,7 @@ function App() {
             const d = revs.filter(r => r.direction === dir);
             return { count: d.length, checkInWait: avg(d.map(r => r.checkInWait)), dockTime: avg(d.map(r => r.dockTime)) };
         };
-        return { count: revs.length, checkInWait, dockTime, ease, courtesy, lumper, detentionFreqPct, apptKeptPct,
+        return { count: revs.length, checkInWait, apptWait, fcfsWait, dockTime, ease, courtesy, lumper, detentionFreqPct, apptKeptPct,
             avgVisit, shortestVisit, longestVisit, lastVisitAt, unloadTrend, changeAlert,
             parkingYes, equipCounts, verifiedCount, score, revs, pickup: byDir("pickup"), delivery: byDir("delivery") };
     };
@@ -415,6 +470,7 @@ function App() {
         .map(l => ({ ...l, stats: locationStats(l.id) }));
     const noCoordCount = nearMe ? locations.filter(l => TYPE_META[l.type] && (!l.lat || !l.lng)).length : 0;
     const selected = locations.find(l => l.id === selectedId);
+    const isAdmin = session && ADMIN_EMAILS.includes(session.user.email);
     const selectedStats = selected ? locationStats(selected.id) : null;
     const possibleDuplicates = newLoc.name.trim().length > 2
         ? locations.filter(l => TYPE_META[l.type] &&
@@ -638,6 +694,19 @@ function App() {
                         "\uD83D\uDD0D",
                         React.createElement("input", { value: query, onChange: e => setQuery(e.target.value), placeholder: "Search by name, city, or corridor", style: { background: "transparent", border: "none", outline: "none", color: "#F5F3ED", marginLeft: 8, flex: 1, fontSize: 14 } })),
                     React.createElement("button", { onClick: () => setView("addLocation"), style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "+ Add stop")),
+                React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 10 } },
+                    React.createElement("button", { onClick: () => setDisplayMode("list"), style: {
+                        flex: 1, fontSize: 12, fontWeight: 700, padding: "8px", borderRadius: 6, cursor: "pointer",
+                        border: displayMode === "list" ? "2px solid #FBC02D" : "1px solid #454E57",
+                        background: displayMode === "list" ? "rgba(251,192,45,.12)" : "transparent",
+                        color: displayMode === "list" ? "#FBC02D" : "#ACB3B9",
+                    } }, "\u2630 List"),
+                    React.createElement("button", { onClick: () => setDisplayMode("map"), style: {
+                        flex: 1, fontSize: 12, fontWeight: 700, padding: "8px", borderRadius: 6, cursor: "pointer",
+                        border: displayMode === "map" ? "2px solid #FBC02D" : "1px solid #454E57",
+                        background: displayMode === "map" ? "rgba(251,192,45,.12)" : "transparent",
+                        color: displayMode === "map" ? "#FBC02D" : "#ACB3B9",
+                    } }, "\uD83D\uDDFA\uFE0F Map")),
                 React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" } },
                     React.createElement("button", { onClick: toggleNearMe, style: {
                         display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6, cursor: "pointer",
@@ -655,7 +724,8 @@ function App() {
                     `${noCoordCount} stop${noCoordCount !== 1 ? "s" : ""} without saved coordinates aren't shown in "near me" — they'll still show up in a text search.`)),
             view !== "list" && (React.createElement("button", { onClick: () => setView(view === "addReview" ? "detail" : "list"), style: { background: "transparent", border: "none", color: "#ACB3B9", fontSize: 13, cursor: "pointer", padding: 0 } }, "\u2190 Back"))),
         view === "list" && (React.createElement("div", { style: { padding: "16px 20px" } },
-            filtered.length === 0 && (React.createElement("div", { style: { textAlign: "center", padding: "60px 20px", color: "#ACB3B9" } },
+            displayMode === "map" && React.createElement(MapView, { locations: filtered, onSelect: (id) => { setSelectedId(id); setView("detail"); } }),
+            displayMode === "list" && filtered.length === 0 && (React.createElement("div", { style: { textAlign: "center", padding: "60px 20px", color: "#ACB3B9" } },
                 React.createElement("div", { style: { fontSize: 32, marginBottom: 12 } }, "\uD83D\uDCCD"),
                 nearMe ? React.createElement(React.Fragment, null,
                     React.createElement("div", { style: { fontSize: 15, marginBottom: 6 } }, `Nothing within ${radiusMiles} miles.`),
@@ -664,7 +734,7 @@ function App() {
                     React.createElement("div", { style: { fontSize: 15, marginBottom: 6 } }, "No stops here yet."),
                     React.createElement("div", { style: { fontSize: 13 } }, "Help the next driver — be the first to log this stop.")
                 ))),
-            React.createElement("div", { style: { display: "grid", gap: 12 } }, filtered.map(l => {
+            displayMode === "list" && React.createElement("div", { style: { display: "grid", gap: 12 } }, filtered.map(l => {
                 const meta = TYPE_META[l.type];
                 return (React.createElement("div", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); }, style: { background: "#262B30", border: "1px solid #343B42", borderLeft: `4px solid ${TYPE_META[l.type].color}`, borderRadius: 8, padding: 14, display: "flex", gap: 14, alignItems: "center", cursor: "pointer" } },
                     React.createElement(ScoreBadge, { score: l.stats.score }),
@@ -692,7 +762,17 @@ function App() {
                             l.stats.verifiedCount > 0 && React.createElement("span", { style: { color: "#4FA36B" } }, `\u2713 ${l.stats.verifiedCount} verified`))),
                     React.createElement("span", { style: { color: "#4A5157" } }, "\u203A")));
             }))),
-            React.createElement("div", { style: { textAlign: "center", padding: "20px 0 4px", fontSize: 12, color: "#6B7278" } }, "Drivers helping drivers. That's it.")),
+            React.createElement("div", { style: { textAlign: "center", padding: "20px 0 4px", fontSize: 12, color: "#6B7278" } }, "Drivers helping drivers. That's it."),
+            React.createElement("div", { style: { textAlign: "center", marginTop: 6 } },
+                React.createElement("button", { onClick: () => setShowLegend(!showLegend), style: { background: "transparent", border: "none", color: "#6B7278", fontSize: 11, textDecoration: "underline", cursor: "pointer" } }, "\u24D8 What do the symbols mean?")),
+            showLegend && React.createElement("div", { style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 14, marginTop: 10, fontSize: 12, color: "#B8BCC0", lineHeight: 1.8 } },
+                React.createElement("div", null, React.createElement("span", { style: { color: "#4FA36B", fontWeight: 700 } }, "✓ green check"), " — GPS-verified: the driver's location was confirmed against the stop's saved coordinates."),
+                React.createElement("div", null, React.createElement("span", { style: { color: "#E8C766", fontWeight: 700 } }, "⚠️ amber warning"), " — \"What's changed\": the most recent report disagrees with the historical pattern here."),
+                React.createElement("div", null, React.createElement("span", { style: { fontWeight: 700 } }, "Dock Score colors"), " — green (4.0+) is solid, amber (2.5–4.0) is mixed, red (below 2.5) is a real problem spot."),
+                React.createElement("div", null, React.createElement("span", { style: { fontWeight: 700 } }, "Confidence tags"), " — \"Early data\" (under 5 reviews), \"Building confidence\" (5–14), \"High confidence\" (15+) reflect how much to trust the score."),
+                React.createElement("div", null, React.createElement("span", { style: { color: "#4FA3D1", fontWeight: 700 } }, "Blue"), " stats are time-based, ", React.createElement("span", { style: { color: "#D9B23E", fontWeight: 700 } }, "gold"), " is money, ", React.createElement("span", { style: { color: "#E0A526", fontWeight: 700 } }, "amber"), " is a risk/detention signal, ", React.createElement("span", { style: { color: "#D98BB0", fontWeight: 700 } }, "pink"), " is courtesy, ", React.createElement("span", { style: { color: "#3FA9A0", fontWeight: 700 } }, "teal"), " is parking."),
+                React.createElement("div", null, React.createElement("span", { style: { color: "#4FA3D1", fontWeight: 700 } }, "\u2B06\uFE0F blue up arrow"), " — pickup. ", React.createElement("span", { style: { color: "#D96B4F", fontWeight: 700 } }, "\u2B07\uFE0F orange down arrow"), " — delivery."),
+                React.createElement("div", null, "Colored left stripe on a stop card — blue for shipper, orange for receiver."))),
         view === "detail" && selected && selectedStats && (React.createElement("div", { style: { padding: "16px 20px" } },
             React.createElement("div", { style: { display: "flex", gap: 14, alignItems: "center", marginBottom: 8 } },
                 React.createElement(ScoreBadge, { score: selectedStats.score, size: "lg" }),
@@ -714,8 +794,10 @@ function App() {
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 } },
                 React.createElement(StatBox, { label: "Dock ease", value: selectedStats.ease !== null ? `${selectedStats.ease.toFixed(1)}/5` : "—", emoji: "\uD83D\uDE9A", color: "#4FA36B" }),
                 React.createElement(StatBox, { label: "Courtesy", value: selectedStats.courtesy !== null ? `${selectedStats.courtesy.toFixed(1)}/5` : "—", emoji: "\uD83D\uDC4D", color: "#D98BB0" }),
-                React.createElement(StatBox, { label: "Avg check-in wait", value: selectedStats.checkInWait !== null ? formatHM(selectedStats.checkInWait) : "—", emoji: "\u23F1", color: "#4FA3D1" }),
-                React.createElement(StatBox, { label: "Avg load/unload", value: selectedStats.dockTime !== null ? formatHM(selectedStats.dockTime) : "—", emoji: "\uD83D\uDE9A", color: "#4FA3D1" }),
+                React.createElement(StatBox, { label: "Avg wait past appointment", value: selectedStats.apptWait !== null ? formatHM(selectedStats.apptWait) : "—", emoji: "\u23F1", color: "#4FA3D1" }),
+                React.createElement(StatBox, { label: "Avg wait from arrival (FCFS)", value: selectedStats.fcfsWait !== null ? formatHM(selectedStats.fcfsWait) : "—", emoji: "\u23F1", color: "#6FB8DE" }),
+                React.createElement(StatBox, { label: "Avg load time (pickup)", value: selectedStats.pickup.dockTime !== null ? formatHM(selectedStats.pickup.dockTime) : "—", emoji: "\u2B06\uFE0F", color: "#4FA3D1" }),
+                React.createElement(StatBox, { label: "Avg unload time (delivery)", value: selectedStats.delivery.dockTime !== null ? formatHM(selectedStats.delivery.dockTime) : "—", emoji: "\u2B07\uFE0F", color: "#D96B4F" }),
                 React.createElement(StatBox, { label: "Appointments kept", value: selectedStats.apptKeptPct !== null ? `${selectedStats.apptKeptPct}%` : "—", emoji: "\uD83D\uDCC5", color: "#9B8AE6" }),
                 React.createElement(StatBox, { label: "Detained past free time", value: selectedStats.detentionFreqPct !== null ? `${selectedStats.detentionFreqPct}% of visits` : "—", emoji: "\u26A0\uFE0F", color: "#E0A526" }),
                 React.createElement(StatBox, { label: "Avg lumper fee", value: selectedStats.lumper !== null ? `$${Math.round(selectedStats.lumper)}` : "—", emoji: "\uD83D\uDCB5", color: "#D9B23E" }),
@@ -751,16 +833,17 @@ function App() {
             React.createElement("div", { style: { display: "flex", gap: 8 } },
                 React.createElement("button", { onClick: () => { setQuickUpdateMode(false); setNewRev(p => ({ ...p, initials: p.initials || (myProfile && (myProfile.username || myProfile.displayName)) || "" })); setView("addReview"); }, style: { ...submitBtnStyle, flex: 1 } }, "+ Leave a review"),
                 React.createElement("button", { onClick: () => { setQuickUpdateMode(true); setNewRev(p => ({ ...p, initials: p.initials || (myProfile && (myProfile.username || myProfile.displayName)) || "" })); setView("addReview"); }, style: { flex: 1, background: "#262B30", color: "#F5F3ED", border: "1px solid #454E57", borderRadius: 6, padding: "13px", fontWeight: 700, fontSize: 14, cursor: "pointer" } }, "Quick update")),
-            React.createElement("button", { onClick: () => setMergeMode(!mergeMode), style: { width: "100%", background: "transparent", border: "1px solid #454E57", color: "#ACB3B9", borderRadius: 6, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginTop: 8 } }, mergeMode ? "Cancel" : "This is a duplicate — merge it with another stop"),
-            mergeMode && React.createElement("div", { style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 12, marginTop: 8 } },
-                React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "Find the other entry for this same stop, then merge its reviews into this one. The other entry gets deleted."),
-                React.createElement("input", { value: mergeQuery, onChange: e => setMergeQuery(e.target.value), placeholder: "Search by name...", style: { ...inputStyle, marginBottom: 8 } }),
-                locations
-                    .filter(l => l.id !== selected.id && TYPE_META[l.type] && mergeQuery.trim().length > 0 && l.name.toLowerCase().includes(mergeQuery.trim().toLowerCase()))
-                    .map(l => (React.createElement("div", { key: l.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid #343B42" } },
-                        React.createElement("span", { style: { fontSize: 13 } }, l.name, " ", React.createElement("span", { style: { color: "#6B7278", fontSize: 11 } }, `(${locationStats(l.id).count} reviews)`)),
-                        React.createElement("button", { onClick: () => mergeInto(l.id), style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "Merge in")))
-                    )),
+            isAdmin && React.createElement(React.Fragment, null,
+                React.createElement("button", { onClick: () => setMergeMode(!mergeMode), style: { width: "100%", background: "transparent", border: "1px solid #454E57", color: "#ACB3B9", borderRadius: 6, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginTop: 8 } }, mergeMode ? "Cancel" : "This is a duplicate — merge it with another stop"),
+                mergeMode && React.createElement("div", { style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 12, marginTop: 8 } },
+                    React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "Find the other entry for this same stop, then merge its reviews into this one. The other entry gets deleted."),
+                    React.createElement("input", { value: mergeQuery, onChange: e => setMergeQuery(e.target.value), placeholder: "Search by name...", style: { ...inputStyle, marginBottom: 8 } }),
+                    locations
+                        .filter(l => l.id !== selected.id && TYPE_META[l.type] && mergeQuery.trim().length > 0 && l.name.toLowerCase().includes(mergeQuery.trim().toLowerCase()))
+                        .map(l => (React.createElement("div", { key: l.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid #343B42" } },
+                            React.createElement("span", { style: { fontSize: 13 } }, l.name, " ", React.createElement("span", { style: { color: "#6B7278", fontSize: 11 } }, `(${locationStats(l.id).count} reviews)`)),
+                            React.createElement("button", { onClick: () => mergeInto(l.id), style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "Merge in")))
+                        ))),
             React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#ACB3B9", margin: "20px 0 10px", textTransform: "uppercase" } },
                 selectedStats.count,
                 " Review",
