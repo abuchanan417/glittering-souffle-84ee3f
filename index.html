@@ -403,6 +403,30 @@ function App() {
         revs.forEach(r => { if (r.equipment)
             equipCounts[r.equipment] = (equipCounts[r.equipment] || 0) + 1; });
         const verifiedCount = revs.filter(r => r.gpsStatus === "verified").length;
+
+        // Top contributor: whoever has the most GPS-verified visits here. Verified-only
+        // on purpose — this can't be gamed by just typing more reviews, only by actually
+        // showing up repeatedly and confirming it.
+        const verifiedByUser = {};
+        revs.filter(r => r.userId && r.gpsStatus === "verified").forEach(r => {
+            if (!verifiedByUser[r.userId]) verifiedByUser[r.userId] = { count: 0, name: r.initials };
+            verifiedByUser[r.userId].count++;
+            verifiedByUser[r.userId].name = r.initials;
+        });
+        let topContributor = null;
+        Object.entries(verifiedByUser).forEach(([uid, info]) => {
+            if (info.count >= 2 && (!topContributor || info.count > topContributor.count)) {
+                topContributor = { userId: uid, name: info.name, count: info.count };
+            }
+        });
+        const visitNumberByReviewId = {};
+        const seenSoFar = {};
+        revs.slice().sort((a, b) => a.createdAt - b.createdAt).forEach(r => {
+            if (r.userId && r.gpsStatus === "verified") {
+                seenSoFar[r.userId] = (seenSoFar[r.userId] || 0) + 1;
+                visitNumberByReviewId[r.id] = seenSoFar[r.userId];
+            }
+        });
         const visitDurations = revs
             .map(r => (r.checkInWait === null && r.dockTime === null) ? null : (r.checkInWait || 0) + (r.dockTime || 0))
             .filter(v => v !== null);
@@ -460,7 +484,7 @@ function App() {
             return { count: d.length, checkInWait: avg(d.map(r => r.checkInWait)), dockTime: avg(d.map(r => r.dockTime)) };
         };
         return { count: revs.length, checkInWait, apptWait, fcfsWait, dockTime, ease, courtesy, lumper, detentionFreqPct, apptKeptPct,
-            avgVisit, shortestVisit, longestVisit, lastVisitAt, unloadTrend, changeAlert,
+            avgVisit, shortestVisit, longestVisit, lastVisitAt, unloadTrend, changeAlert, topContributor, visitNumberByReviewId,
             parkingYes, equipCounts, verifiedCount, score, revs, pickup: byDir("pickup"), delivery: byDir("delivery") };
     };
     const filtered = locations
@@ -589,6 +613,7 @@ function App() {
     };
     const submitReview = async () => {
         if (!session) { setShowAuthBox(true); return showToast("Sign in first — box is at the top of the screen."); }
+        if (newRev.gpsStatus !== "verified") { return showToast("Verify your location first — tap \"Verify my location\" below before posting."); }
         const rev = {
             id: uid(), locationId: selectedId, direction: newRev.direction, equipment: newRev.equipment,
             scheduling: newRev.scheduling, apptKept: newRev.scheduling === "appointment" ? newRev.apptKept : null,
@@ -794,6 +819,11 @@ function App() {
                 confidenceTier(selectedStats.count) && React.createElement("span", { style: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 10, background: `${confidenceTier(selectedStats.count).color}22`, color: confidenceTier(selectedStats.count).color } }, confidenceTier(selectedStats.count).label),
                 React.createElement("span", { style: { fontSize: 12, color: "#ACB3B9" } }, `\u2713 ${selectedStats.verifiedCount} GPS-verified visit${selectedStats.verifiedCount !== 1 ? "s" : ""}`),
                 React.createElement("span", { style: { fontSize: 12, color: "#ACB3B9" } }, `\u00B7 ${selectedStats.count} total review${selectedStats.count !== 1 ? "s" : ""}`)),
+            selectedStats.topContributor && React.createElement("div", { style: { background: "#3A3520", border: "1px solid #D9B23E", borderRadius: 8, padding: "10px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 } },
+                React.createElement("span", { style: { fontSize: 20 } }, "\uD83D\uDC51"),
+                React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: "#D9B23E" } }, `Top contributor: ${selectedStats.topContributor.name}`),
+                    React.createElement("div", { style: { fontSize: 11, color: "#B8BCC0" } }, `${selectedStats.topContributor.count} GPS-verified visits here`))),
             selectedStats.changeAlert && React.createElement("div", { style: { background: "#3A3520", border: "1px solid #8A6A16", borderRadius: 8, padding: 12, marginBottom: 16, display: "flex", gap: 8, alignItems: "flex-start" } },
                 React.createElement("span", { style: { flexShrink: 0 } }, "⚠️"),
                 React.createElement("div", null,
@@ -865,10 +895,12 @@ function App() {
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
                     React.createElement("span", { style: { fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 6 } },
                         r.initials,
+                        selectedStats.topContributor && r.userId === selectedStats.topContributor.userId && React.createElement("span", { title: "Top contributor" }, "\uD83D\uDC51"),
                         " ",
                         r.direction === "pickup" ? "↑" : "↓",
                         " ",
                         r.gpsStatus === "verified" && "✓",
+                        selectedStats.visitNumberByReviewId[r.id] > 1 && React.createElement("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: "#4FA3D122", color: "#4FA3D1" } }, `Visit #${selectedStats.visitNumberByReviewId[r.id]}`),
                         React.createElement("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: `${quality.color}22`, color: quality.color } }, quality.label)),
                     React.createElement("span", { style: { fontSize: 11, color: "#6B7278" } }, new Date(r.createdAt).toLocaleDateString())),
                 React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#B8BCC0", marginBottom: 6 } },
@@ -935,6 +967,15 @@ function App() {
         view === "profile" && session && (React.createElement("div", { style: { padding: "16px 20px" } },
             React.createElement("div", { style: { fontWeight: 800, fontSize: 18, marginBottom: 4 } }, "My profile"),
             React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9", marginBottom: 16 } }, "Everything here is optional. Fill in what you want other drivers to see."),
+            (() => {
+                const crownCount = locations.filter(l => {
+                    const s = locationStats(l.id);
+                    return s.topContributor && s.topContributor.userId === session.user.id;
+                }).length;
+                return crownCount > 0 && React.createElement("div", { style: { background: "#3A3520", border: "1px solid #D9B23E", borderRadius: 8, padding: "10px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 } },
+                    React.createElement("span", { style: { fontSize: 20 } }, "\uD83D\uDC51"),
+                    React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: "#D9B23E" } }, `Top contributor at ${crownCount} stop${crownCount !== 1 ? "s" : ""}`));
+            })(),
             React.createElement(Field, { label: "Name" },
                 React.createElement("input", { value: profileForm.displayName, onChange: e => setProfileForm({ ...profileForm, displayName: e.target.value }), placeholder: "e.g. John D.", style: inputStyle })),
             React.createElement(Field, { label: "Username", hint: "Shown on your reviews instead of typing initials every time." },
@@ -983,7 +1024,7 @@ function App() {
                 React.createElement("input", { type: "range", min: 1, max: 5, value: newRev.courtesy, onChange: e => setNewRev({ ...newRev, courtesy: e.target.value }), style: { width: "100%" } })),
             React.createElement(Field, { label: "Amenities" },
                 React.createElement(ChipRow, { options: AMENITIES, value: newRev.amenities, onChange: v => setNewRev({ ...newRev, amenities: v }), multi: true })),
-            React.createElement(Field, { label: "Verify you're actually here", hint: "Trust, but verify — optional, but verified reviews carry more weight." },
+            React.createElement(Field, { label: "Verify you're actually here (required)", hint: "Trust, but verify — you can't post a review without this." },
                 React.createElement("button", { onClick: verifyReviewGeo, style: { display: "flex", alignItems: "center", gap: 8, background: "#343B42", border: "1px solid #454E57", borderRadius: 6, padding: "10px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer",
                         color: newRev.gpsStatus === "verified" ? "#4FA36B" : newRev.gpsStatus === "mismatch" ? "#D9694F" : "#F5F3ED" } },
                     "\uD83D\uDCCD ",
@@ -992,7 +1033,7 @@ function App() {
                 React.createElement("textarea", { value: newRev.notes, onChange: e => setNewRev({ ...newRev, notes: e.target.value }), placeholder: "Anything else worth flagging", style: { ...inputStyle, minHeight: 70, resize: "vertical" } })),
             React.createElement(Field, { label: "Your initials (optional)" },
                 React.createElement("input", { value: newRev.initials, onChange: e => setNewRev({ ...newRev, initials: e.target.value }), placeholder: "e.g. J.D.", style: inputStyle })),
-            React.createElement("button", { onClick: submitReview, style: submitBtnStyle }, "Post review"))),
+            React.createElement("button", { onClick: submitReview, style: newRev.gpsStatus === "verified" ? submitBtnStyle : { ...submitBtnStyle, background: "#454E57", color: "#9AA0A6", cursor: "not-allowed" } }, newRev.gpsStatus === "verified" ? "Post review" : "Verify your location to post"))),
         toast && (React.createElement("div", { style: { position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#1B5E3A", border: "2px solid #F5F3ED", borderRadius: 6, padding: "10px 20px", fontSize: 13, fontWeight: 700, zIndex: 50, maxWidth: "90%", textAlign: "center" } }, toast))));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));
