@@ -646,28 +646,7 @@ function App() {
         setView("detail");
         showToast("Location added.");
     };
-    const verifyReviewGeo = async () => {
-        setNewRev(p => ({ ...p, gpsStatus: "checking" }));
-        const r = await getGeo();
-        if (r.error) {
-            setNewRev(p => ({ ...p, gpsStatus: "error" }));
-            showToast(r.error);
-            return;
-        }
-        if (selected && selected.lat && selected.lng) {
-            const dist = distanceMeters(r.lat, r.lng, selected.lat, selected.lng);
-            const verified = dist < 500;
-            setNewRev(p => ({ ...p, gps: r, gpsStatus: verified ? "verified" : "mismatch" }));
-            showToast(verified ? "Verified — you're on site." : "That's more than 500m from this stop's saved location.");
-        }
-        else {
-            setNewRev(p => ({ ...p, gps: r, gpsStatus: "verified" }));
-            showToast("Location captured (this stop has no saved coordinates to check against yet).");
-        }
-    };
-    const submitReview = async () => {
-        if (!session) { setShowAuthBox(true); return showToast("Sign in first — box is at the top of the screen."); }
-        if (newRev.gpsStatus !== "verified") { return showToast("Verify your location first — tap \"Verify my location\" below before posting."); }
+    const finalizeReviewSubmit = async (gpsStatusValue) => {
         const rev = {
             id: uid(), locationId: selectedId, direction: newRev.direction, equipment: newRev.equipment,
             scheduling: newRev.scheduling, apptKept: newRev.scheduling === "appointment" ? newRev.apptKept : null,
@@ -680,7 +659,7 @@ function App() {
             detentionOwed: newRev.detentionOwed,
             overnightParking: newRev.overnightParking, dockEase: Number(newRev.dockEase), courtesy: Number(newRev.courtesy),
             amenities: newRev.amenities, notes: newRev.notes, initials: newRev.initials || "Anon",
-            gpsStatus: (newRev.gpsStatus === "verified" || newRev.gpsStatus === "mismatch") ? newRev.gpsStatus : "not_checked",
+            gpsStatus: gpsStatusValue,
             userId: session ? session.user.id : null,
             createdAt: Date.now(),
         };
@@ -695,6 +674,30 @@ function App() {
         saveMine(newCount);
         const justHit = TIERS.find(t => t.count === newCount);
         showToast(justHit ? `Milestone hit: ${justHit.reward}` : "Review posted. Thanks for the intel.");
+    };
+    const verifyAndSubmit = async () => {
+        if (!session) { setShowAuthBox(true); return showToast("Sign in first — box is at the top of the screen."); }
+        setNewRev(p => ({ ...p, gpsStatus: "checking" }));
+        const r = await getGeo();
+        if (r.error) {
+            setNewRev(p => ({ ...p, gpsStatus: "error" }));
+            showToast(r.error);
+            return;
+        }
+        if (selected && selected.lat && selected.lng) {
+            const dist = distanceMeters(r.lat, r.lng, selected.lat, selected.lng);
+            const verified = dist < 500;
+            if (!verified) {
+                setNewRev(p => ({ ...p, gps: r, gpsStatus: "mismatch" }));
+                showToast("That's more than 500m from this stop's saved location — can't post from here.");
+                return;
+            }
+            setNewRev(p => ({ ...p, gps: r, gpsStatus: "verified" }));
+            await finalizeReviewSubmit("verified");
+        } else {
+            setNewRev(p => ({ ...p, gps: r, gpsStatus: "verified" }));
+            await finalizeReviewSubmit("verified");
+        }
     };
     if (loading) {
         return React.createElement("div", { style: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#ACB3B9", fontSize: 14 } }, "Loading DockTruth...");
@@ -1072,16 +1075,13 @@ function App() {
                 React.createElement("input", { type: "range", min: 1, max: 5, value: newRev.courtesy, onChange: e => setNewRev({ ...newRev, courtesy: e.target.value }), style: { width: "100%" } })),
             React.createElement(Field, { label: "Amenities" },
                 React.createElement(ChipRow, { options: AMENITIES, value: newRev.amenities, onChange: v => setNewRev({ ...newRev, amenities: v }), multi: true })),
-            React.createElement(Field, { label: "Verify you're actually here (required)", hint: "Trust, but verify — you can't post a review without this." },
-                React.createElement("button", { onClick: verifyReviewGeo, style: { display: "flex", alignItems: "center", gap: 8, background: "#343B42", border: "1px solid #454E57", borderRadius: 6, padding: "10px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer",
-                        color: newRev.gpsStatus === "verified" ? "#4FA36B" : newRev.gpsStatus === "mismatch" ? "#D9694F" : "#F5F3ED" } },
-                    "\uD83D\uDCCD ",
-                    newRev.gpsStatus === "checking" ? "Checking..." : newRev.gpsStatus === "verified" ? "Verified on site" : newRev.gpsStatus === "mismatch" ? "Location doesn't match — tap to retry" : "Verify my location")),
             React.createElement(Field, { label: "Notes (optional)" },
                 React.createElement("textarea", { value: newRev.notes, onChange: e => setNewRev({ ...newRev, notes: e.target.value }), placeholder: "Anything else worth flagging", style: { ...inputStyle, minHeight: 70, resize: "vertical" } })),
             React.createElement(Field, { label: "Your initials (optional)" },
                 React.createElement("input", { value: newRev.initials, onChange: e => setNewRev({ ...newRev, initials: e.target.value }), placeholder: "e.g. J.D.", style: inputStyle })),
-            React.createElement("button", { onClick: submitReview, style: newRev.gpsStatus === "verified" ? submitBtnStyle : { ...submitBtnStyle, background: "#454E57", color: "#9AA0A6", cursor: "not-allowed" } }, newRev.gpsStatus === "verified" ? "Post review" : "Verify your location to post"))),
+            React.createElement("div", { style: { fontSize: 11, color: "#6B7278", marginBottom: 8, textAlign: "center" } }, "Tapping below checks you're actually here, then posts — required, one step."),
+            React.createElement("button", { onClick: verifyAndSubmit, disabled: newRev.gpsStatus === "checking", style: newRev.gpsStatus === "checking" ? { ...submitBtnStyle, background: "#454E57", color: "#9AA0A6", cursor: "wait" } : newRev.gpsStatus === "mismatch" ? { ...submitBtnStyle, background: "#D9694F", color: "#F5F3ED" } : submitBtnStyle },
+                newRev.gpsStatus === "checking" ? "Verifying location..." : newRev.gpsStatus === "mismatch" ? "Too far from this stop — tap to retry" : "\uD83D\uDCCD Verify & post review"))),
         toast && (React.createElement("div", { style: { position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#1B5E3A", border: "2px solid #F5F3ED", borderRadius: 6, padding: "10px 20px", fontSize: 13, fontWeight: 700, zIndex: 50, maxWidth: "90%", textAlign: "center" } }, toast))));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));
