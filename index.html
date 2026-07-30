@@ -732,56 +732,56 @@ function App() {
                 nearMe && noCoordCount > 0 && React.createElement("div", { style: { fontSize: 11, color: "#6B7278", marginTop: 6 } },
                     `${noCoordCount} stop${noCoordCount !== 1 ? "s" : ""} without saved coordinates aren't shown in "near me" — they'll still show up in a text search.`)),
             view !== "list" && (React.createElement("button", { onClick: () => setView(view === "addReview" ? "detail" : "list"), style: { background: "transparent", border: "none", color: "#ACB3B9", fontSize: 13, cursor: "pointer", padding: 0 } }, "\u2190 Back"))),
-        view === "list" && (React.createElement("div", { style: { padding: "16px 20px" } },
-            displayMode === "map" && React.createElement(MapView, { locations: filtered, onSelect: (id) => { setSelectedId(id); setView("detail"); } }),
-            displayMode === "list" && filtered.length === 0 && (React.createElement("div", { style: { textAlign: "center", padding: "60px 20px", color: "#ACB3B9" } },
-                React.createElement("div", { style: { fontSize: 32, marginBottom: 12 } }, "\uD83D\uDCCD"),
-                nearMe ? React.createElement(React.Fragment, null,
-                    React.createElement("div", { style: { fontSize: 15, marginBottom: 6 } }, `Nothing within ${radiusMiles} miles.`),
-                    React.createElement("div", { style: { fontSize: 13 } }, "Try a wider radius, or turn off \"Near me\" to see everything.")
-                ) : React.createElement(React.Fragment, null,
-                    React.createElement("div", { style: { fontSize: 15, marginBottom: 6 } }, "No stops here yet."),
-                    React.createElement("div", { style: { fontSize: 13 } }, "Help the next driver — be the first to log this stop.")
-                ))),
-            displayMode === "list" && React.createElement("div", { style: { display: "grid", gap: 12 } }, filtered.map(l => {
-                const meta = typeMeta(l.type);
-                return (React.createElement("div", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); }, style: { background: "#262B30", border: "1px solid #343B42", borderLeft: `4px solid ${typeMeta(l.type).color}`, borderRadius: 8, padding: 14, display: "flex", gap: 14, alignItems: "center", cursor: "pointer" } },
-                    React.createElement(ScoreBadge, { score: l.stats.score }),
-                    React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-                        React.createElement("div", { style: { fontSize: 11, color: meta.color, fontWeight: 700, textTransform: "uppercase", marginBottom: 3 } },
-                            meta.emoji,
-                            " ",
-                            meta.label,
-                            " ",
-                            l.lat && "✓"),
-                        React.createElement("div", { style: { fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, l.name),
-                        React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9" } }, l.corridor || l.address || "No location notes yet"),
-                        React.createElement("div", { style: { display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#B8BCC0", flexWrap: "wrap" } },
-                            l.stats.checkInWait !== null && React.createElement("span", null,
-                                "\u23F1 ",
-                                formatHM(l.stats.checkInWait),
-                                " to dock"),
-                            l.stats.apptKeptPct !== null && React.createElement("span", null,
-                                l.stats.apptKeptPct,
-                                "% appts kept"),
-                            React.createElement("span", null,
-                                l.stats.count,
-                                " review",
-                                l.stats.count !== 1 ? "s" : ""),
-                            l.stats.verifiedCount > 0 && React.createElement("span", { style: { color: "#4FA36B" } }, `\u2713 ${l.stats.verifiedCount} verified`))),
-                    React.createElement("span", { style: { color: "#4A5157" } }, "\u203A")));
-            }))),
-            React.createElement("div", { style: { textAlign: "center", padding: "20px 0 4px", fontSize: 12, color: "#6B7278" } }, "Drivers helping drivers. That's it."),
-            React.createElement("div", { style: { textAlign: "center", marginTop: 6 } },
-                React.createElement("button", { onClick: () => setShowLegend(!showLegend), style: { background: "transparent", border: "none", color: "#6B7278", fontSize: 11, textDecoration: "underline", cursor: "pointer" } }, "\u24D8 What do the symbols mean?")),
-            showLegend && React.createElement("div", { style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 14, marginTop: 10, fontSize: 12, color: "#B8BCC0", lineHeight: 1.8 } },
-                React.createElement("div", null, React.createElement("span", { style: { color: "#4FA36B", fontWeight: 700 } }, "✓ green check"), " — GPS-verified: the driver's location was confirmed against the stop's saved coordinates."),
-                React.createElement("div", null, React.createElement("span", { style: { color: "#E8C766", fontWeight: 700 } }, "⚠️ amber warning"), " — \"What's changed\": the most recent report disagrees with the historical pattern here."),
-                React.createElement("div", null, React.createElement("span", { style: { fontWeight: 700 } }, "Dock Score colors"), " — green (4.0+) is solid, amber (2.5–4.0) is mixed, red (below 2.5) is a real problem spot."),
-                React.createElement("div", null, React.createElement("span", { style: { fontWeight: 700 } }, "Confidence tags"), " — \"Early data\" (under 5 reviews), \"Building confidence\" (5–14), \"High confidence\" (15+) reflect how much to trust the score."),
-                React.createElement("div", null, React.createElement("span", { style: { color: "#4FA3D1", fontWeight: 700 } }, "Blue"), " stats are time-based, ", React.createElement("span", { style: { color: "#D9B23E", fontWeight: 700 } }, "gold"), " is money, ", React.createElement("span", { style: { color: "#E0A526", fontWeight: 700 } }, "amber"), " is a risk/detention signal, ", React.createElement("span", { style: { color: "#D98BB0", fontWeight: 700 } }, "pink"), " is courtesy, ", React.createElement("span", { style: { color: "#3FA9A0", fontWeight: 700 } }, "teal"), " is parking."),
-                React.createElement("div", null, React.createElement("span", { style: { color: "#4FA3D1", fontWeight: 700 } }, "\u2B06\uFE0F blue up arrow"), " — pickup. ", React.createElement("span", { style: { color: "#D96B4F", fontWeight: 700 } }, "\u2B07\uFE0F orange down arrow"), " — delivery."),
-                React.createElement("div", null, "Colored left stripe on a stop card — blue for shipper, orange for receiver."))),
+        view === "list" && React.createElement("div", { style: { padding: "16px 20px" } }, [
+  displayMode === "map" && React.createElement(MapView, { key: "mapview", locations: filtered, onSelect: (id) => { setSelectedId(id); setView("detail"); } }),
+  displayMode === "list" && filtered.length === 0 && React.createElement("div", { key: "emptystate", style: { textAlign: "center", padding: "60px 20px", color: "#ACB3B9" } },
+    React.createElement("div", { style: { fontSize: 32, marginBottom: 12 } }, "\uD83D\uDCCD"),
+    nearMe
+      ? React.createElement(React.Fragment, null,
+          React.createElement("div", { style: { fontSize: 15, marginBottom: 6 } }, `Nothing within ${radiusMiles} miles.`),
+          React.createElement("div", { style: { fontSize: 13 } }, "Try a wider radius, or turn off \"Near me\" to see everything.")
+        )
+      : React.createElement(React.Fragment, null,
+          React.createElement("div", { style: { fontSize: 15, marginBottom: 6 } }, "No stops here yet."),
+          React.createElement("div", { style: { fontSize: 13 } }, "Help the next driver — be the first to log this stop.")
+        )
+  ),
+  displayMode === "list" && filtered.length > 0 && React.createElement("div", { key: "grid", style: { display: "grid", gap: 12 } },
+    filtered.map(l => {
+      const meta = typeMeta(l.type);
+      return React.createElement("div", { key: l.id, onClick: () => { setSelectedId(l.id); setView("detail"); }, style: { background: "#262B30", border: "1px solid #343B42", borderLeft: `4px solid ${meta.color}`, borderRadius: 8, padding: 14, display: "flex", gap: 14, alignItems: "center", cursor: "pointer" } },
+        React.createElement(ScoreBadge, { score: l.stats.score }),
+        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+          React.createElement("div", { style: { fontSize: 11, color: meta.color, fontWeight: 700, textTransform: "uppercase", marginBottom: 3 } },
+            meta.emoji, " ", meta.label, " ", l.lat && "✓"
+          ),
+          React.createElement("div", { style: { fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, l.name),
+          React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9" } }, l.corridor || l.address || "No location notes yet"),
+          React.createElement("div", { style: { display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#B8BCC0", flexWrap: "wrap" } },
+            l.stats.checkInWait !== null && React.createElement("span", { key: "wait" }, "\u23F1 ", formatHM(l.stats.checkInWait), " to dock"),
+            l.stats.apptKeptPct !== null && React.createElement("span", { key: "appt" }, l.stats.apptKeptPct, "% appts kept"),
+            React.createElement("span", { key: "count" }, l.stats.count, " review", l.stats.count !== 1 ? "s" : ""),
+            l.stats.verifiedCount > 0 && React.createElement("span", { key: "verified", style: { color: "#4FA36B" } }, `✓ ${l.stats.verifiedCount} verified`)
+          )
+        ),
+        React.createElement("span", { style: { color: "#4A5157" } }, "\u203A")
+      );
+    })
+  ),
+  React.createElement("div", { key: "footer", style: { textAlign: "center", padding: "20px 0 4px", fontSize: 12, color: "#6B7278" } }, "Drivers helping drivers. That's it."),
+  React.createElement("div", { key: "legendtoggle", style: { textAlign: "center", marginTop: 6 } },
+    React.createElement("button", { onClick: () => setShowLegend(!showLegend), style: { background: "transparent", border: "none", color: "#6B7278", fontSize: 11, textDecoration: "underline", cursor: "pointer" } }, "\u24D8 What do the symbols mean?")
+  ),
+  showLegend && React.createElement("div", { key: "legendpanel", style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 14, marginTop: 10, fontSize: 12, color: "#B8BCC0", lineHeight: 1.8 } },
+    React.createElement("div", { key: "l1" }, React.createElement("span", { style: { color: "#4FA36B", fontWeight: 700 } }, "✓ green check"), " — GPS-verified: the driver's location was confirmed against the stop's saved coordinates."),
+    React.createElement("div", { key: "l2" }, React.createElement("span", { style: { color: "#E8C766", fontWeight: 700 } }, "⚠️ amber warning"), " — \"What's changed\": the most recent report disagrees with the historical pattern here."),
+    React.createElement("div", { key: "l3" }, React.createElement("span", { style: { fontWeight: 700 } }, "Dock Score colors"), " — green (4.0+) is solid, amber (2.5–4.0) is mixed, red (below 2.5) is a real problem spot."),
+    React.createElement("div", { key: "l4" }, React.createElement("span", { style: { fontWeight: 700 } }, "Confidence tags"), " — \"Early data\" (under 5 reviews), \"Building confidence\" (5–14), \"High confidence\" (15+) reflect how much to trust the score."),
+    React.createElement("div", { key: "l5" }, React.createElement("span", { style: { color: "#4FA3D1", fontWeight: 700 } }, "Blue"), " stats are time-based, ", React.createElement("span", { style: { color: "#D9B23E", fontWeight: 700 } }, "gold"), " is money, ", React.createElement("span", { style: { color: "#E0A526", fontWeight: 700 } }, "amber"), " is a risk/detention signal, ", React.createElement("span", { style: { color: "#D98BB0", fontWeight: 700 } }, "pink"), " is courtesy, ", React.createElement("span", { style: { color: "#3FA9A0", fontWeight: 700 } }, "teal"), " is parking."),
+    React.createElement("div", { key: "l6" }, React.createElement("span", { style: { color: "#4FA3D1", fontWeight: 700 } }, "\u2B06\uFE0F blue up arrow"), " — pickup. ", React.createElement("span", { style: { color: "#D96B4F", fontWeight: 700 } }, "\u2B07\uFE0F orange down arrow"), " — delivery."),
+    React.createElement("div", { key: "l7" }, "Colored left stripe on a stop card — blue for shipper, orange for receiver.")
+  )
+]),
         view === "detail" && selected && selectedStats && (React.createElement("div", { style: { padding: "16px 20px" } },
             React.createElement("div", { style: { display: "flex", gap: 14, alignItems: "center", marginBottom: 8 } },
                 React.createElement(ScoreBadge, { score: selectedStats.score, size: "lg" }),
