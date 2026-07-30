@@ -124,7 +124,7 @@ const RUN_TYPES = ["OTR", "Regional", "Local", "Dedicated", "Team/Sleeper"];
 
 // Only these signed-in accounts can merge duplicate locations. Everyone else
 // can flag a duplicate but not actually combine two stops.
-const ADMIN_EMAILS = ["test@docktruth.dev"];
+const ADMIN_USERNAMES = ["BDE"];
 const TIERS = [
     { count: 10, reward: "Founding Contributor badge" },
     { count: 25, reward: "Early access to new features" },
@@ -339,12 +339,13 @@ function App() {
     const [data, setData] = useState({ locations: [], reviews: [] });
     const [loading, setLoading] = useState(true);
     const [session, setSession] = useState(null);
-    const [authEmail, setAuthEmail] = useState("");
-    const [authStatus, setAuthStatus] = useState("idle"); // idle | sending | sent | error
     const [showAuthBox, setShowAuthBox] = useState(false);
-    const [authCode, setAuthCode] = useState("");
-    const [authMode, setAuthMode] = useState("code"); // code | password
+    const [authMode, setAuthMode] = useState("login"); // login | signup
+    const [authStatus, setAuthStatus] = useState("idle"); // idle | working | error
+    const [authUsername, setAuthUsername] = useState("");
     const [authPassword, setAuthPassword] = useState("");
+    const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
+    const [authRecoveryEmail, setAuthRecoveryEmail] = useState("");
     const [myProfile, setMyProfile] = useState(null);
     const [profileForm, setProfileForm] = useState({ displayName: "", username: "", yearsDriving: "", equipmentTypes: [], runTypes: [], homeBase: "" });
     const [profileSaveStatus, setProfileSaveStatus] = useState("idle");
@@ -392,25 +393,35 @@ function App() {
         return () => authListener.subscription.unsubscribe();
     }, []);
 
-    const sendMagicLink = async () => {
-        if (!authEmail.trim() || !authEmail.includes("@")) { showToast("Enter a real email address."); return; }
-        setAuthStatus("sending");
-        const { error } = await db.auth.signInWithOtp({ email: authEmail.trim(), options: { emailRedirectTo: window.location.href } });
-        setAuthStatus(error ? "error" : "sent");
-        if (error) showToast(error.message);
+    const usernameToSyntheticEmail = (u) => `${u.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "")}@docktruth.local`;
+
+    const doSignup = async () => {
+        const uname = authUsername.trim();
+        if (!uname || uname.length < 3) { showToast("Username needs to be at least 3 characters."); return; }
+        if (!authPassword || authPassword.length < 6) { showToast("Password needs to be at least 6 characters."); return; }
+        if (authPassword !== authPasswordConfirm) { showToast("Passwords don't match."); return; }
+        setAuthStatus("working");
+        const syntheticEmail = usernameToSyntheticEmail(uname);
+        const { data, error } = await db.auth.signUp({ email: syntheticEmail, password: authPassword });
+        if (error) {
+            setAuthStatus("idle");
+            showToast(error.message.includes("already registered") || error.message.includes("already exists") ? "That username's taken — try another." : error.message);
+            return;
+        }
+        if (data.user) {
+            await db.from("profiles").upsert({ id: data.user.id, username: uname, data: { recoveryEmail: authRecoveryEmail.trim() || null } });
+        }
+        setAuthStatus("idle");
+        setAuthPassword(""); setAuthPasswordConfirm("");
+        showToast("Account created — you're signed in.");
     };
-    const verifyCode = async () => {
-        if (!authCode.trim()) { showToast("Enter the code from your email."); return; }
-        setAuthStatus("verifying");
-        const { error } = await db.auth.verifyOtp({ email: authEmail.trim(), token: authCode.trim(), type: "email" });
-        if (error) { setAuthStatus("sent"); showToast(error.message); return; }
-        setAuthCode("");
-    };
-    const signInWithPassword = async () => {
-        if (!authEmail.trim() || !authPassword) { showToast("Enter email and password."); return; }
-        setAuthStatus("verifying");
-        const { error } = await db.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword });
-        if (error) { setAuthStatus("idle"); showToast(error.message); return; }
+
+    const doLogin = async () => {
+        const uname = authUsername.trim();
+        if (!uname || !authPassword) { showToast("Enter your username and password."); return; }
+        setAuthStatus("working");
+        const { error } = await db.auth.signInWithPassword({ email: usernameToSyntheticEmail(uname), password: authPassword });
+        if (error) { setAuthStatus("idle"); showToast(error.message.includes("Invalid") ? "Wrong username or password." : error.message); return; }
         setAuthPassword("");
     };
     const submitProfile = async () => {
@@ -545,7 +556,7 @@ function App() {
         .map(l => ({ ...l, stats: locationStats(l.id) }));
     const noCoordCount = nearMe ? locations.filter(l => l.type !== "truckstop" && (!l.lat || !l.lng)).length : 0;
     const selected = locations.find(l => l.id === selectedId);
-    const isAdmin = session && ADMIN_EMAILS.includes(session.user.email);
+    const isAdmin = myProfile && myProfile.username && ADMIN_USERNAMES.includes(myProfile.username);
     const selectedStats = selected ? locationStats(selected.id) : null;
     const possibleDuplicates = newLoc.name.trim().length > 2
         ? locations.filter(l => l.type !== "truckstop" &&
@@ -700,33 +711,23 @@ function App() {
                     React.createElement("span", { style: { fontSize: 12, color: "#ACB3B9" } }, "What really happened at the dock — from the drivers who were there")),
                 session
                     ? React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexShrink: 0 } },
-                        React.createElement("span", { style: { fontSize: 12, color: "#4FA36B" } }, `✓ ${myProfile && myProfile.username ? myProfile.username : session.user.email}`),
+                        React.createElement("span", { style: { fontSize: 12, color: "#4FA36B" } }, `✓ ${myProfile && myProfile.username ? myProfile.username : "Signed in"}`),
                         React.createElement("button", { onClick: () => setView("profile"), style: { background: "transparent", border: "1px solid #454E57", color: "#ACB3B9", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "My profile"),
                         React.createElement("button", { onClick: signOut, style: { background: "transparent", border: "1px solid #454E57", color: "#ACB3B9", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "Sign out"))
                     : React.createElement("button", { onClick: () => setShowAuthBox(!showAuthBox), style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 } }, "Sign in to contribute"),
-            showAuthBox && !session && React.createElement("div", { style: { background: "#262B30", border: "1px solid #454E57", borderRadius: 8, padding: 12, marginBottom: 12 } },
-                authMode === "password"
-                    ? React.createElement(React.Fragment, null,
-                        React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "Sign in with an email + password account (e.g. one created directly in Supabase for testing)."),
-                        React.createElement("input", { value: authEmail, onChange: e => setAuthEmail(e.target.value), placeholder: "you@example.com", style: { ...inputStyle, marginBottom: 8 } }),
-                        React.createElement("div", { style: { display: "flex", gap: 8 } },
-                            React.createElement("input", { value: authPassword, onChange: e => setAuthPassword(e.target.value), placeholder: "password", type: "password", style: { ...inputStyle, flex: 1 } }),
-                            React.createElement("button", { onClick: signInWithPassword, style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, authStatus === "verifying" ? "Checking..." : "Sign in")),
-                        React.createElement("button", { onClick: () => setAuthMode("code"), style: { background: "transparent", border: "none", color: "#ACB3B9", fontSize: 11, cursor: "pointer", padding: "6px 0 0", textDecoration: "underline" } }, "Back to email code"))
-                    : (authStatus === "sent" || authStatus === "verifying")
-                    ? React.createElement(React.Fragment, null,
-                        React.createElement("div", { style: { fontSize: 13, color: "#4FA36B", marginBottom: 8 } }, `We sent a 6-digit code to ${authEmail}. Enter it below.`),
-                        React.createElement("div", { style: { display: "flex", gap: 8 } },
-                            React.createElement("input", { value: authCode, onChange: e => setAuthCode(e.target.value), placeholder: "123456", inputMode: "numeric", style: { ...inputStyle, flex: 1 } }),
-                            React.createElement("button", { onClick: verifyCode, style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, authStatus === "verifying" ? "Checking..." : "Verify")),
-                        React.createElement("button", { onClick: sendMagicLink, style: { background: "transparent", border: "none", color: "#ACB3B9", fontSize: 11, cursor: "pointer", padding: "6px 0 0", textDecoration: "underline" } }, "Didn't get it? Send a new code"))
-                    : React.createElement(React.Fragment, null,
-                        React.createElement("div", { style: { fontSize: 12, color: "#4FA36B", fontWeight: 700, marginBottom: 6 } }, "Real drivers. Real data. No corporate spin."),
-                        React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 8 } }, "No password needed — we'll email you a 6-digit code."),
-                        React.createElement("div", { style: { display: "flex", gap: 8 } },
-                            React.createElement("input", { value: authEmail, onChange: e => setAuthEmail(e.target.value), placeholder: "you@example.com", style: { ...inputStyle, flex: 1 } }),
-                            React.createElement("button", { onClick: sendMagicLink, style: { background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "0 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, authStatus === "sending" ? "Sending..." : "Send code")),
-                        React.createElement("button", { onClick: () => setAuthMode("password"), style: { background: "transparent", border: "none", color: "#6B7278", fontSize: 10, cursor: "pointer", padding: "6px 0 0", textDecoration: "underline" } }, "Have a password account instead?"))),
+            showAuthBox && !session && React.createElement("div", { style: { background: "#262B30", border: "1px solid #454E57", borderRadius: 8, padding: 12, marginBottom: 12 } }, [
+                React.createElement("div", { key: "tagline", style: { fontSize: 12, color: "#4FA36B", fontWeight: 700, marginBottom: 8 } }, "Real drivers. Real data. No corporate spin."),
+                React.createElement("div", { key: "tabs", style: { display: "flex", gap: 8, marginBottom: 10 } },
+                    React.createElement("button", { onClick: () => setAuthMode("login"), style: { flex: 1, padding: "8px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", border: authMode === "login" ? "2px solid #FBC02D" : "1px solid #454E57", background: authMode === "login" ? "rgba(251,192,45,.12)" : "transparent", color: authMode === "login" ? "#FBC02D" : "#ACB3B9" } }, "Log in"),
+                    React.createElement("button", { onClick: () => setAuthMode("signup"), style: { flex: 1, padding: "8px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", border: authMode === "signup" ? "2px solid #FBC02D" : "1px solid #454E57", background: authMode === "signup" ? "rgba(251,192,45,.12)" : "transparent", color: authMode === "signup" ? "#FBC02D" : "#ACB3B9" } }, "Create account")
+                ),
+                React.createElement("input", { key: "username", value: authUsername, onChange: e => setAuthUsername(e.target.value), placeholder: "Username", style: { ...inputStyle, marginBottom: 8 } }),
+                React.createElement("input", { key: "password", value: authPassword, onChange: e => setAuthPassword(e.target.value), placeholder: "Password", type: "password", style: { ...inputStyle, marginBottom: authMode === "signup" ? 8 : 0 } }),
+                authMode === "signup" && React.createElement("input", { key: "confirmpw", value: authPasswordConfirm, onChange: e => setAuthPasswordConfirm(e.target.value), placeholder: "Confirm password", type: "password", style: { ...inputStyle, marginBottom: 8 } }),
+                authMode === "signup" && React.createElement("input", { key: "recovery", value: authRecoveryEmail, onChange: e => setAuthRecoveryEmail(e.target.value), placeholder: "Recovery email (optional)", style: { ...inputStyle, marginBottom: 8 } }),
+                authMode === "signup" && React.createElement("div", { key: "recoveryhint", style: { fontSize: 11, color: "#6B7278", marginBottom: 8 } }, "No email required to sign up. If you add one, it's just so we can help you get back in if you forget your password."),
+                React.createElement("button", { key: "submit", onClick: authMode === "signup" ? doSignup : doLogin, style: { width: "100%", background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "10px", fontWeight: 700, fontSize: 13, cursor: "pointer", marginTop: authMode === "login" ? 8 : 0 } }, authStatus === "working" ? "Working..." : authMode === "signup" ? "Create account" : "Log in")
+            ]),
             saveError && React.createElement("div", { style: { background: "#3A1F1F", border: "1px solid #7A2E28", borderRadius: 6, padding: "8px 12px", fontSize: 13, marginBottom: 12, display: "flex", gap: 8, alignItems: "center" } },
                 "⚠️ ", saveError),
                 view !== "list" && React.createElement("button", { onClick: () => setView("list"), style: { display: "flex", alignItems: "center", gap: 6, background: "#262B30", border: "1px solid #454E57", borderRadius: 6, padding: "8px 12px", color: "#F5F3ED", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 } }, "\u2302 Home")),
