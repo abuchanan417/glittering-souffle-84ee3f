@@ -191,6 +191,47 @@ function getGeo() {
     });
 }
 /* ---------- SMALL COMPONENTS ----------------------------------------- */
+function MapPicker({ initialLat, initialLng, onPick }) {
+    const mapRef = React.useRef(null);
+    const mapInstance = React.useRef(null);
+    const markerRef = React.useRef(null);
+    const [failed, setFailed] = React.useState(false);
+
+    React.useEffect(() => {
+        if (typeof L === "undefined") { setFailed(true); return; }
+        try {
+            const startLat = initialLat || 39.8;
+            const startLng = initialLng || -98.6;
+            const startZoom = initialLat ? 15 : 4;
+            const map = L.map(mapRef.current).setView([startLat, startLng], startZoom);
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: "&copy; OpenStreetMap contributors",
+                maxZoom: 19,
+            }).addTo(map);
+            const marker = L.marker([startLat, startLng], { draggable: true }).addTo(map);
+            marker.on("dragend", () => {
+                const pos = marker.getLatLng();
+                onPick(pos.lat, pos.lng);
+            });
+            map.on("click", (e) => {
+                marker.setLatLng(e.latlng);
+                onPick(e.latlng.lat, e.latlng.lng);
+            });
+            mapInstance.current = map;
+            markerRef.current = marker;
+            if (initialLat) onPick(startLat, startLng);
+        } catch (e) { setFailed(true); }
+        return () => { if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; } };
+    }, []);
+
+    if (failed) {
+        return React.createElement("div", { style: { padding: 16, textAlign: "center", color: "#ACB3B9", fontSize: 13, background: "#262B30", borderRadius: 8 } }, "Map couldn't load — use \"my current location\" instead.");
+    }
+    return React.createElement("div", null,
+        React.createElement("div", { ref: mapRef, style: { width: "100%", height: "280px", borderRadius: 8, overflow: "hidden", marginBottom: 8 } }),
+        React.createElement("div", { style: { fontSize: 11, color: "#6B7278" } }, "Tap anywhere on the map, or drag the pin, to set your exact spot.")
+    );
+}
 function MapView({ locations, onSelect }) {
     const mapRef = React.useRef(null);
     const mapInstance = React.useRef(null);
@@ -325,6 +366,7 @@ function App() {
     const [toast, setToast] = useState(null);
     const [newLoc, setNewLoc] = useState({ name: "", type: "shipper", address: "", corridor: "", notes: "", lat: null, lng: null });
     const [locGeoStatus, setLocGeoStatus] = useState("idle");
+    const [showMapPicker, setShowMapPicker] = useState(false);
     const [newRev, setNewRev] = useState(emptyReview);
     useEffect(() => {
         (async () => {
@@ -588,6 +630,7 @@ function App() {
         setData({ locations: [...locations, loc], reviews });
         setNewLoc({ name: "", type: "shipper", address: "", corridor: "", notes: "", lat: null, lng: null });
         setLocGeoStatus("idle");
+        setShowMapPicker(false);
         setSelectedId(loc.id);
         setView("detail");
         showToast("Location added.");
@@ -958,9 +1001,13 @@ function App() {
             React.createElement(Field, { label: "Corridor / route" },
                 React.createElement("input", { value: newLoc.corridor, onChange: e => setNewLoc({ ...newLoc, corridor: e.target.value }), placeholder: "e.g. I-24 near Exit 45", style: inputStyle })),
             React.createElement(Field, { label: "GPS coordinates", hint: "Capture while physically at the stop so reviews can be verified against it." },
-                React.createElement("button", { onClick: captureLocGeo, style: { display: "flex", alignItems: "center", gap: 8, background: "#343B42", border: "1px solid #454E57", borderRadius: 6, padding: "10px 14px", color: newLoc.lat ? "#4FA36B" : "#F5F3ED", fontSize: 13, fontWeight: 700, cursor: "pointer" } },
+                React.createElement("button", { onClick: captureLocGeo, style: { display: "flex", alignItems: "center", gap: 8, background: "#343B42", border: "1px solid #454E57", borderRadius: 6, padding: "10px 14px", color: newLoc.lat ? "#4FA36B" : "#F5F3ED", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 8 } },
                     "\uD83D\uDCCD ",
-                    locGeoStatus === "checking" ? "Getting location..." : newLoc.lat ? `Captured (${newLoc.lat.toFixed(4)}, ${newLoc.lng.toFixed(4)})` : "Use my current location")),
+                    locGeoStatus === "checking" ? "Getting location..." : newLoc.lat ? `Captured (${newLoc.lat.toFixed(4)}, ${newLoc.lng.toFixed(4)})` : "Use my current location"),
+                React.createElement("button", { onClick: () => setShowMapPicker(!showMapPicker), style: { display: "block", background: "transparent", border: "none", color: "#4FA3D1", fontSize: 12, textDecoration: "underline", cursor: "pointer", padding: 0 } },
+                    showMapPicker ? "Hide map" : "\uD83D\uDDFA\uFE0F Or tap your exact spot on a map"),
+                showMapPicker && React.createElement("div", { style: { marginTop: 10 } },
+                    React.createElement(MapPicker, { initialLat: newLoc.lat, initialLng: newLoc.lng, onPick: (lat, lng) => setNewLoc(prev => ({ ...prev, lat, lng })) }))),
             React.createElement(Field, { label: "Notes (optional)" },
                 React.createElement("textarea", { value: newLoc.notes, onChange: e => setNewLoc({ ...newLoc, notes: e.target.value }), placeholder: "Anything else drivers should know", style: { ...inputStyle, minHeight: 70, resize: "vertical" } })),
             React.createElement("button", { onClick: submitLocation, style: submitBtnStyle }, "Save stop"))),
