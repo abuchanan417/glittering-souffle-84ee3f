@@ -393,7 +393,7 @@ function App() {
         return () => authListener.subscription.unsubscribe();
     }, []);
 
-    const usernameToSyntheticEmail = (u) => `${u.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "")}@docktruth.local`;
+    const usernameToSyntheticEmail = (u) => `${u.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "")}@docktruth-driver.app`;
 
     const doSignup = async () => {
         const uname = authUsername.trim();
