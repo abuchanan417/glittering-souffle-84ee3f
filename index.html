@@ -83,6 +83,11 @@ async function deleteLocationRow(id) {
   return !error;
 }
 
+async function insertReport(reviewId, reporterId, reason, notes) {
+  const { error } = await db.from("reports").insert({ id: uid(), review_id: reviewId, reporter_id: reporterId, reason, notes: notes || null });
+  return !error;
+}
+
 async function loadProfile(userId) {
   const { data: row, error } = await db.from("profiles").select("*").eq("id", userId).maybeSingle();
   if (error || !row) return null;
@@ -189,6 +194,28 @@ function getGeo() {
             return resolve({ error: "Geolocation not supported on this device." });
         navigator.geolocation.getCurrentPosition((pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }), (err) => resolve({ error: err.message || "Location permission denied." }), { enableHighAccuracy: true, timeout: 8000 });
     });
+}
+async function queryNearbyDock(lat, lng) {
+    const query = `[out:json][timeout:15];node["amenity"="loading_dock"](around:250,${lat},${lng});out body;`;
+    try {
+        const res = await fetch("https://overpass-api.de/api/interpreter", {
+            method: "POST",
+            body: query,
+            headers: { "Content-Type": "text/plain" },
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data.elements || data.elements.length === 0) return null;
+        let best = null, bestDist = Infinity;
+        data.elements.forEach((el) => {
+            const d = distanceMeters(lat, lng, el.lat, el.lon);
+            if (d < bestDist) { bestDist = d; best = el; }
+        });
+        if (!best) return null;
+        return { lat: best.lat, lng: best.lon, name: (best.tags && best.tags.name) || "", distanceM: bestDist };
+    } catch (e) {
+        return null;
+    }
 }
 /* ---------- SMALL COMPONENTS ----------------------------------------- */
 function MapPicker({ initialLat, initialLng, onPick }) {
@@ -349,6 +376,10 @@ function App() {
     const [myProfile, setMyProfile] = useState(null);
     const [profileForm, setProfileForm] = useState({ displayName: "", username: "", yearsDriving: "", equipmentTypes: [], runTypes: [], homeBase: "" });
     const [profileSaveStatus, setProfileSaveStatus] = useState("idle");
+    const [reportingReviewId, setReportingReviewId] = useState(null);
+    const [reportReason, setReportReason] = useState("False or misleading");
+    const [reportNotes, setReportNotes] = useState("");
+    const [reportStatus, setReportStatus] = useState("idle");
     const [saveError, setSaveError] = useState(null);
     const [myCount, setMyCount] = useState(0);
     const [filterType, setFilterType] = useState("all");
@@ -433,6 +464,17 @@ function App() {
         setProfileSaveStatus("saved");
         showToast("Profile saved.");
         setView("list");
+    };
+    const submitReport = async (reviewId) => {
+        if (!session) { setShowAuthBox(true); return showToast("Sign in first — box is at the top of the screen."); }
+        setReportStatus("submitting");
+        const ok = await insertReport(reviewId, session.user.id, reportReason, reportNotes);
+        setReportStatus("idle");
+        if (!ok) { showToast("Couldn't submit that report — try again."); return; }
+        setReportingReviewId(null);
+        setReportReason("False or misleading");
+        setReportNotes("");
+        showToast("Report sent. Thanks for flagging it.");
     };
     const signOut = async () => { await db.auth.signOut(); setShowAuthBox(false); showToast("Signed out."); };
 
@@ -568,10 +610,12 @@ function App() {
     const tierProgressPct = nextTier ? Math.min(100, Math.round(((myCount - prevTierCount) / (nextTier.count - prevTierCount)) * 100)) : 100;
     const [locationCheckStatus, setLocationCheckStatus] = useState("idle");
     const [locationMatch, setLocationMatch] = useState(null);
+    const [osmSuggestion, setOsmSuggestion] = useState(null);
 
     const checkAmIHere = async () => {
         setLocationCheckStatus("checking");
         setLocationMatch(null);
+        setOsmSuggestion(null);
         const r = await getGeo();
         if (r.error) { setLocationCheckStatus("idle"); showToast(r.error); return; }
         const candidates = locations
@@ -581,11 +625,15 @@ function App() {
         const closest = candidates[0];
         if (closest && closest.distanceM <= 300) {
             setLocationMatch(closest);
+            setLocationCheckStatus("done");
         } else {
             setLocationMatch("none");
             setNewLoc(prev => ({ ...prev, lat: r.lat, lng: r.lng }));
+            setOsmSuggestion("checking");
+            const dock = await queryNearbyDock(r.lat, r.lng);
+            setOsmSuggestion(dock || "none");
+            setLocationCheckStatus("done");
         }
-        setLocationCheckStatus("done");
     };
 
     const toggleNearMe = async () => {
@@ -767,9 +815,18 @@ function App() {
                     React.createElement("div", { style: { display: "flex", gap: 8 } },
                         React.createElement("button", { onClick: () => { setSelectedId(locationMatch.location.id); setView("detail"); setLocationMatch(null); }, style: { flex: 1, background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "10px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "Yes, that's me"),
                         React.createElement("button", { onClick: () => setLocationMatch("none"), style: { flex: 1, background: "transparent", color: "#F5F3ED", border: "1px solid #F5F3ED", borderRadius: 6, padding: "10px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "No, different stop"))),
+                locationMatch === "none" && osmSuggestion && osmSuggestion !== "none" && osmSuggestion !== "checking" && React.createElement("div", { style: { background: "#1B5E3A", border: "2px solid #4FA36B", borderRadius: 8, padding: 14, marginBottom: 12 } },
+                    React.createElement("div", { style: { fontSize: 13, color: "#F5F3ED", marginBottom: 10 } },
+                        `Found a mapped loading dock nearby on OpenStreetMap${osmSuggestion.name ? ` — "${osmSuggestion.name}"` : ""} (about ${Math.round(osmSuggestion.distanceM)}m away). Want to use its exact spot for your new stop?`),
+                    React.createElement("div", { style: { display: "flex", gap: 8 } },
+                        React.createElement("button", { onClick: () => { setNewLoc(prev => ({ ...prev, name: osmSuggestion.name || prev.name, lat: osmSuggestion.lat, lng: osmSuggestion.lng })); setView("addLocation"); setLocationMatch(null); setOsmSuggestion(null); }, style: { flex: 1, background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "10px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "Use this dock"),
+                        React.createElement("button", { onClick: () => setOsmSuggestion("none"), style: { flex: 1, background: "transparent", color: "#F5F3ED", border: "1px solid #F5F3ED", borderRadius: 6, padding: "10px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "No thanks"))),
                 locationMatch === "none" && React.createElement("div", { style: { background: "#262B30", border: "1px solid #454E57", borderRadius: 8, padding: 14, marginBottom: 12 } },
-                    React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9", marginBottom: 10 } }, `No matching saved stop nearby. Want to add this one as new? ${newLoc.lat ? "Your GPS is already captured for it." : ""}`),
-                    React.createElement("button", { onClick: () => { setView("addLocation"); setLocationMatch(null); }, style: { width: "100%", background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "10px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "Add this stop")),
+                    React.createElement("div", { style: { fontSize: 13, color: "#ACB3B9", marginBottom: 10 } },
+                        osmSuggestion === "checking"
+                            ? "No matching saved stop nearby. Checking OpenStreetMap for a known dock..."
+                            : `No matching saved stop nearby. Want to add this one as new? ${newLoc.lat ? "Your GPS is already captured for it." : ""}`),
+                    React.createElement("button", { onClick: () => { setView("addLocation"); setLocationMatch(null); setOsmSuggestion(null); }, style: { width: "100%", background: "#FBC02D", color: "#1C2024", border: "none", borderRadius: 6, padding: "10px", fontWeight: 700, fontSize: 13, cursor: "pointer" } }, "Add this stop")),
                 React.createElement("div", { style: { display: "flex", gap: 10 } },
                     React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", background: "#262B30", border: "1px solid #454E57", borderRadius: 6, padding: "8px 12px" } },
                         "\uD83D\uDD0D",
@@ -841,6 +898,8 @@ function App() {
     })
   ),
   React.createElement("div", { key: "footer", style: { textAlign: "center", padding: "20px 0 4px", fontSize: 12, color: "#6B7278" } }, "Drivers helping drivers. That's it."),
+  React.createElement("div", { key: "tosline", style: { textAlign: "center", fontSize: 11, marginTop: 4 } },
+    React.createElement("a", { href: "terms.html", target: "_blank", style: { color: "#6B7278", textDecoration: "underline" } }, "Terms of Service")),
   React.createElement("div", { key: "legendtoggle", style: { textAlign: "center", marginTop: 6 } },
     React.createElement("button", { onClick: () => setShowLegend(!showLegend), style: { background: "transparent", border: "none", color: "#6B7278", fontSize: 11, textDecoration: "underline", cursor: "pointer" } }, "\u24D8 What do the symbols mean?")
   ),
@@ -938,52 +997,61 @@ function App() {
                 selectedStats.verifiedCount > 0 && `· ${selectedStats.verifiedCount} GPS-verified`),
             React.createElement("div", { style: { display: "grid", gap: 10 } }, selectedStats.revs.map(r => {
                 const quality = reviewQuality(r);
-                return (React.createElement("div", { key: r.id, style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 12 } },
-                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
-                    React.createElement("span", { style: { fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 6 } },
-                        r.initials,
-                        selectedStats.topContributor && r.userId === selectedStats.topContributor.userId && React.createElement("span", { title: "Top contributor" }, "\uD83D\uDC51"),
-                        " ",
-                        r.direction === "pickup" ? "↑" : "↓",
-                        " ",
-                        r.gpsStatus === "verified" && "✓",
-                        selectedStats.visitNumberByReviewId[r.id] > 1 && React.createElement("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: "#4FA3D122", color: "#4FA3D1" } }, `Visit #${selectedStats.visitNumberByReviewId[r.id]}`),
-                        React.createElement("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: `${quality.color}22`, color: quality.color } }, quality.label)),
-                    React.createElement("span", { style: { fontSize: 11, color: "#6B7278" } }, new Date(r.createdAt).toLocaleDateString())),
-                React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#B8BCC0", marginBottom: 6 } },
-                    React.createElement("span", null, r.equipment),
-                    React.createElement("span", null, r.scheduling === "appointment" ? (r.apptKept === "yes" ? "Appt kept" : "Appt missed") : "FCFS"),
-                    r.checkInWait !== null && React.createElement("span", null,
-                        formatHM(r.checkInWait),
-                        " to dock"),
-                    r.dockTime !== null && React.createElement("span", null,
-                        formatHM(r.dockTime),
-                        " ",
-                        r.direction === "pickup" ? "loading" : "unloading")),
-                React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#B8BCC0", marginBottom: 6 } },
-                    r.lumperUsed === "yes" && React.createElement("span", null,
-                        "$",
-                        r.lumperFee,
-                        " lumper (",
-                        r.lumperPaidBy,
-                        ")"),
-                    r.detentionOwed === "yes" && React.createElement("span", null, "⚠️ Waited past free time"),
-                    r.overnightParking !== "unknown" && React.createElement("span", null,
-                        "Overnight parking: ",
-                        r.overnightParking),
-                    React.createElement("span", null,
-                        "Dock ease ",
-                        r.dockEase,
-                        "/5"),
-                    r.courtesy !== undefined && React.createElement("span", null,
-                        "Courtesy ",
-                        r.courtesy,
-                        "/5")),
-                r.apptMissReason && React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 6 } },
-                    "Missed reason: ",
-                    r.apptMissReason),
-                r.amenities.length > 0 && (React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: r.notes ? 6 : 0 } }, r.amenities.map(a => React.createElement("span", { key: a, style: { fontSize: 10, background: "#343B42", padding: "2px 8px", borderRadius: 10, color: "#ACB3B9" } }, a)))),
-                r.notes && React.createElement("div", { style: { fontSize: 13, color: "#D8DADC" } }, r.notes)));
+                return (React.createElement("div", { key: r.id, style: { background: "#262B30", border: "1px solid #343B42", borderRadius: 8, padding: 12 } }, [
+    React.createElement("div", { key: "top", style: { display: "flex", justifyContent: "space-between", marginBottom: 6 } },
+        React.createElement("span", { style: { fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 6 } },
+            r.initials,
+            selectedStats.topContributor && r.userId === selectedStats.topContributor.userId && React.createElement("span", { title: "Top contributor" }, "\uD83D\uDC51"),
+            " ",
+            r.direction === "pickup" ? "↑" : "↓",
+            " ",
+            r.gpsStatus === "verified" && "✓",
+            selectedStats.visitNumberByReviewId[r.id] > 1 && React.createElement("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: "#4FA3D122", color: "#4FA3D1" } }, `Visit #${selectedStats.visitNumberByReviewId[r.id]}`),
+            React.createElement("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: `${quality.color}22`, color: quality.color } }, quality.label)),
+        React.createElement("span", { style: { fontSize: 11, color: "#6B7278" } }, new Date(r.createdAt).toLocaleDateString())),
+    React.createElement("div", { key: "row1", style: { display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#B8BCC0", marginBottom: 6 } },
+        React.createElement("span", null, r.equipment),
+        React.createElement("span", null, r.scheduling === "appointment" ? (r.apptKept === "yes" ? "Appt kept" : "Appt missed") : "FCFS"),
+        r.checkInWait !== null && React.createElement("span", null,
+            formatHM(r.checkInWait),
+            " to dock"),
+        r.dockTime !== null && React.createElement("span", null,
+            formatHM(r.dockTime),
+            " ",
+            r.direction === "pickup" ? "loading" : "unloading")),
+    React.createElement("div", { key: "row2", style: { display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#B8BCC0", marginBottom: 6 } },
+        r.lumperUsed === "yes" && React.createElement("span", null,
+            "$",
+            r.lumperFee,
+            " lumper (",
+            r.lumperPaidBy,
+            ")"),
+        r.detentionOwed === "yes" && React.createElement("span", null, "⚠️ Waited past free time"),
+        r.overnightParking !== "unknown" && React.createElement("span", null,
+            "Overnight parking: ",
+            r.overnightParking),
+        React.createElement("span", null,
+            "Dock ease ",
+            r.dockEase,
+            "/5"),
+        r.courtesy !== undefined && React.createElement("span", null,
+            "Courtesy ",
+            r.courtesy,
+            "/5")),
+    r.apptMissReason && React.createElement("div", { key: "missreason", style: { fontSize: 12, color: "#ACB3B9", marginBottom: 6 } },
+        "Missed reason: ",
+        r.apptMissReason),
+    r.amenities.length > 0 && React.createElement("div", { key: "amenities", style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: r.notes ? 6 : 0 } }, r.amenities.map(a => React.createElement("span", { key: a, style: { fontSize: 10, background: "#343B42", padding: "2px 8px", borderRadius: 10, color: "#ACB3B9" } }, a))),
+    r.notes && React.createElement("div", { key: "notes", style: { fontSize: 13, color: "#D8DADC", marginBottom: 6 } }, r.notes),
+    reportingReviewId !== r.id && React.createElement("button", { key: "reportlink", onClick: () => { setReportingReviewId(r.id); setReportReason("False or misleading"); setReportNotes(""); }, style: { background: "transparent", border: "none", color: "#6B7278", fontSize: 11, cursor: "pointer", padding: 0, marginTop: 4 } }, "\uD83D\uDEA9 Report this review"),
+    reportingReviewId === r.id && React.createElement("div", { key: "reportform", style: { background: "#1C2024", border: "1px solid #454E57", borderRadius: 6, padding: 10, marginTop: 8 } },
+        React.createElement("div", { style: { fontSize: 12, color: "#ACB3B9", marginBottom: 6 } }, "What's wrong with this review?"),
+        React.createElement(ChipRow, { options: ["False or misleading", "Inappropriate", "Spam", "Other"], value: reportReason, onChange: setReportReason }),
+        React.createElement("textarea", { value: reportNotes, onChange: e => setReportNotes(e.target.value), placeholder: "Anything else worth explaining (optional)", style: { ...inputStyle, minHeight: 50, marginTop: 8, marginBottom: 8 } }),
+        React.createElement("div", { style: { display: "flex", gap: 8 } },
+            React.createElement("button", { onClick: () => submitReport(r.id), style: { flex: 1, background: "#D9694F", color: "#F5F3ED", border: "none", borderRadius: 6, padding: "8px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, reportStatus === "submitting" ? "Sending..." : "Submit report"),
+            React.createElement("button", { onClick: () => setReportingReviewId(null), style: { flex: 1, background: "transparent", color: "#ACB3B9", border: "1px solid #454E57", borderRadius: 6, padding: "8px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "Cancel")))
+]));
             })))),
         view === "addLocation" && (React.createElement("div", { style: { padding: "16px 20px" } },
             React.createElement("div", { style: { fontWeight: 800, fontSize: 18, marginBottom: 16 } }, "Add a stop"),
