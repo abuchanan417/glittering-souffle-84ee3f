@@ -217,6 +217,22 @@ async function queryNearbyDock(lat, lng) {
         return null;
     }
 }
+async function queryDocksInBbox(south, west, north, east) {
+    const query = `[out:json][timeout:20];node["amenity"="loading_dock"](${south},${west},${north},${east});out body;`;
+    try {
+        const res = await fetch("https://overpass-api.de/api/interpreter", {
+            method: "POST",
+            body: query,
+            headers: { "Content-Type": "text/plain" },
+        });
+        if (!res.ok) return [];
+        const data = await res.json();
+        if (!data.elements) return [];
+        return data.elements.map((el) => ({ id: el.id, lat: el.lat, lng: el.lon, name: (el.tags && el.tags.name) || "" }));
+    } catch (e) {
+        return [];
+    }
+}
 /* ---------- SMALL COMPONENTS ----------------------------------------- */
 function MapPicker({ initialLat, initialLng, onPick }) {
     const mapRef = React.useRef(null);
@@ -259,11 +275,39 @@ function MapPicker({ initialLat, initialLng, onPick }) {
         React.createElement("div", { style: { fontSize: 11, color: "#6B7278" } }, "Tap anywhere on the map, or drag the pin, to set your exact spot.")
     );
 }
-function MapView({ locations, onSelect }) {
+function MapView({ locations, onSelect, onAddSuggested }) {
     const mapRef = React.useRef(null);
     const mapInstance = React.useRef(null);
     const markersLayer = React.useRef(null);
+    const osmLayer = React.useRef(null);
+    const debounceRef = React.useRef(null);
     const [leafletFailed, setLeafletFailed] = React.useState(false);
+    const [osmLoading, setOsmLoading] = React.useState(false);
+
+    const refreshOsmDocks = React.useCallback(async () => {
+        if (!mapInstance.current || !osmLayer.current) return;
+        const zoom = mapInstance.current.getZoom();
+        osmLayer.current.clearLayers();
+        if (zoom < 11) return; // too zoomed out - bbox would be huge and slow/impolite to query
+        const b = mapInstance.current.getBounds();
+        setOsmLoading(true);
+        const docks = await queryDocksInBbox(b.getSouth(), b.getWest(), b.getNorth(), b.getEast());
+        setOsmLoading(false);
+        if (!mapInstance.current || !osmLayer.current) return;
+        const existingCoords = locations.filter(l => l.lat && l.lng).map(l => [l.lat, l.lng]);
+        docks.forEach((d) => {
+            const alreadySaved = existingCoords.some(([lat, lng]) => distanceMeters(d.lat, d.lng, lat, lng) < 40);
+            if (alreadySaved) return;
+            const marker = L.circleMarker([d.lat, d.lng], {
+                radius: 6, fillColor: "#6B7278", color: "#ACB3B9", weight: 1, fillOpacity: 0.6, dashArray: "2,2",
+            }).addTo(osmLayer.current);
+            marker.bindPopup(`<div style="min-width:160px">${d.name ? `<strong>${d.name}</strong><br/>` : ""}Possible loading dock<br/><span style="font-size:11px;color:#888">via OpenStreetMap, unconfirmed</span><br/><a href="#" data-osm-id="${d.id}" style="color:#4FA3D1;">+ Add as a stop →</a></div>`);
+            marker.on("popupopen", () => {
+                const link = document.querySelector(`a[data-osm-id="${d.id}"]`);
+                if (link) link.onclick = (e) => { e.preventDefault(); onAddSuggested(d); };
+            });
+        });
+    }, [locations, onAddSuggested]);
 
     React.useEffect(() => {
         if (typeof L === "undefined") { setLeafletFailed(true); return; }
@@ -275,9 +319,15 @@ function MapView({ locations, onSelect }) {
                     maxZoom: 18,
                 }).addTo(mapInstance.current);
                 markersLayer.current = L.layerGroup().addTo(mapInstance.current);
+                osmLayer.current = L.layerGroup().addTo(mapInstance.current);
+                mapInstance.current.on("moveend", () => {
+                    if (debounceRef.current) clearTimeout(debounceRef.current);
+                    debounceRef.current = setTimeout(() => { refreshOsmDocks(); }, 700);
+                });
             }
         } catch (e) { setLeafletFailed(true); }
         return () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
             if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; }
         };
     }, []);
@@ -306,9 +356,14 @@ function MapView({ locations, onSelect }) {
             const bounds = L.latLngBounds(withCoords.map(l => [l.lat, l.lng]));
             mapInstance.current.fitBounds(bounds, { padding: [30, 30], maxZoom: 12 });
         }
+        setTimeout(() => refreshOsmDocks(), 400);
     }, [locations]);
 
-    return React.createElement("div", { ref: mapRef, style: { width: "100%", height: "420px", borderRadius: 8, overflow: "hidden", marginBottom: 12 } });
+    return React.createElement("div", { style: { position: "relative" } },
+        React.createElement("div", { ref: mapRef, style: { width: "100%", height: "420px", borderRadius: 8, overflow: "hidden", marginBottom: 4 } }),
+        osmLoading && React.createElement("div", { style: { position: "absolute", top: 10, right: 10, background: "#1C2024", border: "1px solid #454E57", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#ACB3B9" } }, "Checking OpenStreetMap..."),
+        React.createElement("div", { style: { fontSize: 11, color: "#6B7278", marginBottom: 12 } }, "Gray dots are possible loading docks from OpenStreetMap, not yet confirmed stops. Zoom in to see them.")
+    );
 }
 function ScoreBadge({ score, size }) {
     const dim = size === "lg" ? 72 : 44;
@@ -862,7 +917,7 @@ function App() {
                     `${noCoordCount} stop${noCoordCount !== 1 ? "s" : ""} without saved coordinates aren't shown in "near me" — they'll still show up in a text search.`)),
             view !== "list" && (React.createElement("button", { onClick: () => setView(view === "addReview" ? "detail" : "list"), style: { background: "transparent", border: "none", color: "#ACB3B9", fontSize: 13, cursor: "pointer", padding: 0 } }, "\u2190 Back"))),
         view === "list" && React.createElement("div", { style: { padding: "16px 20px" } }, [
-  displayMode === "map" && React.createElement(MapView, { key: "mapview", locations: filtered, onSelect: (id) => { setSelectedId(id); setView("detail"); } }),
+  displayMode === "map" && React.createElement(MapView, { key: "mapview", locations: filtered, onSelect: (id) => { setSelectedId(id); setView("detail"); }, onAddSuggested: (dock) => { setNewLoc(prev => ({ ...prev, name: dock.name || prev.name, lat: dock.lat, lng: dock.lng })); setView("addLocation"); } }),
   displayMode === "list" && filtered.length === 0 && React.createElement("div", { key: "emptystate", style: { textAlign: "center", padding: "60px 20px", color: "#ACB3B9" } },
     React.createElement("div", { style: { fontSize: 32, marginBottom: 12 } }, "\uD83D\uDCCD"),
     nearMe
